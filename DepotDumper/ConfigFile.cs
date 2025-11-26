@@ -19,6 +19,7 @@ namespace DepotDumper
         public bool UseNewNamingFormat { get; set; } = true;
         public int MaxConcurrentApps { get; set; } = 1;
         public string LogLevel { get; set; } = "Info";
+        public bool DownloadManifests { get; set; } = true;
         public HashSet<uint> AppIdsToProcess { get; set; } = new HashSet<uint>();
         public HashSet<uint> ExcludedAppIds { get; set; } = new HashSet<uint>();
 
@@ -134,6 +135,8 @@ namespace DepotDumper
             }
         }
 
+        public string BranchFilter { get; set; } = null;
+
         public void ApplyToDepotDumperConfig()
         {
             DepotDumper.Config ??= new DumpConfig();
@@ -146,6 +149,8 @@ namespace DepotDumper
             DepotDumper.Config.DumpDirectory = this.DumpDirectory;
             DepotDumper.Config.UseNewNamingFormat = this.UseNewNamingFormat;
             DepotDumper.Config.LogLevel = this.LogLevel;
+            DepotDumper.Config.DownloadManifests = this.DownloadManifests;
+            DepotDumper.Config.BranchFilter = this.BranchFilter;
             
             if (DepotDumper.Config.ExcludedAppIds != null)
             {
@@ -210,7 +215,20 @@ namespace DepotDumper
             {
                 LogLevel = Program.GetParameter<string>(args, "-log-level", "Info");
             }
-            
+            if (Program.HasParameter(args, "-download-manifests"))
+            {
+                DownloadManifests = Program.GetParameter(args, "-download-manifests", true);
+            }
+            if (Program.HasParameter(args, "-no-manifests"))
+            {
+                DownloadManifests = false;
+            }
+            if (Program.HasParameter(args, "-branch"))
+            {
+                BranchFilter = Program.GetParameter<string>(args, "-branch");
+                Logger.Info($"Branch filter set to: {BranchFilter}");
+            }
+
             int excludeIndex = Program.IndexOfParam(args, "-exclude-app");
             if (excludeIndex > -1 && excludeIndex < args.Length - 1)
             {

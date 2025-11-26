@@ -528,6 +528,14 @@ namespace DepotDumper
                 foreach (var branchNode in manifests.Children)
                 {
                     var branch = branchNode.Name;
+
+                    // Filter by branch if specified
+                    if (!string.IsNullOrEmpty(Config?.BranchFilter) && branch != Config.BranchFilter)
+                    {
+                        Logger.Debug($"Skipping branch '{branch}' for depot {depotId} (filter: '{Config.BranchFilter}')");
+                        continue;
+                    }
+
                     if (branchNode["gid"] != KeyValue.Invalid)
                     {
                         ulong manifestId = branchNode["gid"].AsUnsignedLong();
@@ -546,6 +554,14 @@ namespace DepotDumper
                 foreach (var encryptedBranch in manifests_encrypted.Children)
                 {
                     var branch = encryptedBranch.Name;
+
+                    // Filter by branch if specified
+                    if (!string.IsNullOrEmpty(Config?.BranchFilter) && branch != Config.BranchFilter)
+                    {
+                        Logger.Debug($"Skipping encrypted branch '{branch}' for depot {depotId} (filter: '{Config.BranchFilter}')");
+                        continue;
+                    }
+
                     if (encryptedBranch["gid"] != KeyValue.Invalid)
                     {
                         Logger.Info($"Found encrypted manifest for depot {depotId} in branch '{branch}'");
@@ -1235,6 +1251,38 @@ namespace DepotDumper
             // Initialize with the API-provided date
             DateTime definitiveDate = manifestDate;
             Logger.Debug($"Manifest {manifestId} (Depot {depotId}, App {appId}, Branch '{branch}'): Received manifestDate = {manifestDate}");
+
+            // Check if manifest downloading is disabled
+            if (Config?.DownloadManifests == false)
+            {
+                Logger.Info($"Manifest downloading disabled - skipping manifest {manifestId} for depot {depotId}, branch '{branch}'");
+                // Still process the Lua file and track the branch as processed
+                var cleanBranchName = branch.Replace('/', '_').Replace('\\', '_');
+                var appPath = Path.Combine(path, directoryAppId.ToString());
+                var branchPath = Path.Combine(appPath, cleanBranchName);
+                Directory.CreateDirectory(branchPath);
+
+                // Update LUA file even without manifest
+                string branchLuaFile = Path.Combine(branchPath, $"{directoryAppId}.lua");
+                await UpdateLuaFileWithDlcAsync(branchLuaFile, directoryAppId, depotId, depotKeyHex?.ToLowerInvariant(), manifestId, appDlcInfo ?? new Dictionary<uint, string>());
+
+                // Add the branch to processed branches
+                if (!processedBranches.Contains(cleanBranchName))
+                {
+                    processedBranches.Add(cleanBranchName);
+                }
+
+                // Update branch last modified date
+                branchLastModified.AddOrUpdate(cleanBranchName, definitiveDate, (key, existingDate) =>
+                {
+                    var dateToUse = definitiveDate < existingDate ? definitiveDate : existingDate;
+                    Logger.Debug($"Manifest {manifestId} (no download): Updating branch '{key}'. ExistingDate={existingDate}, NewDate={definitiveDate}. Using {dateToUse}");
+                    return dateToUse;
+                });
+
+                StatisticsTracker.TrackManifestProcessing(depotId, manifestId, branch, false, true, null, null, definitiveDate);
+                return;
+            }
 
             if (cdnPoolInstance == null)
             {
@@ -2467,8 +2515,14 @@ namespace DepotDumper
                             continue;
                         }
 
-                        // Include only manifest and lua files
-                        if (fileName.EndsWith(".manifest") || fileName.EndsWith(".lua"))
+                        // Include only manifest and lua files (or just lua if manifests disabled)
+                        bool shouldInclude = fileName.EndsWith(".lua");
+                        if (Config?.DownloadManifests != false)
+                        {
+                            shouldInclude = shouldInclude || fileName.EndsWith(".manifest");
+                        }
+
+                        if (shouldInclude)
                         {
                             try
                             {
@@ -2490,8 +2544,15 @@ namespace DepotDumper
 
                     if (Directory.EnumerateFileSystemEntries(tempDir).Any())
                     {
-                        Logger.Info($"Creating zip for branch '{branchName}' with {manifestsIncluded} manifests, " +
-                                    $"{luaFilesIncluded} lua files at {zipFilePath}");
+                        if (Config?.DownloadManifests == false)
+                        {
+                            Logger.Info($"Creating Lua-only zip for branch '{branchName}' with {luaFilesIncluded} lua files at {zipFilePath}");
+                        }
+                        else
+                        {
+                            Logger.Info($"Creating zip for branch '{branchName}' with {manifestsIncluded} manifests, " +
+                                        $"{luaFilesIncluded} lua files at {zipFilePath}");
+                        }
                         CreateZipArchive(tempDir, zipFilePath);
                     }
                     else

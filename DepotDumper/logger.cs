@@ -19,6 +19,9 @@ namespace DepotDumper
         private static List<string> errorLog = new List<string>();
         private static bool consoleOutput = true;
         private static bool fileOutput = true;
+
+        // Event for GUI logging
+        public static event Action<string, string>? OnLogMessage;
         public static void Initialize(string logPath = null, LogLevel level = LogLevel.Info, bool toConsole = true, bool toFile = true)
         {
             lock (LogLock)
@@ -96,6 +99,17 @@ namespace DepotDumper
                     Console.WriteLine(formattedMessage);
                     Console.ForegroundColor = originalColor;
                 }
+
+                // Fire event for GUI subscribers
+                OnLogMessage?.Invoke(level.ToString(), message);
+            }
+        }
+
+        public static void SetLogLevel(string levelString)
+        {
+            if (Enum.TryParse<LogLevel>(levelString, true, out LogLevel level))
+            {
+                minLogLevel = level;
             }
         }
         public static void Debug(string message) => Log(LogLevel.Debug, message);

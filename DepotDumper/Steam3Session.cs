@@ -827,6 +827,19 @@ namespace DepotDumper
             this.seq++;
             IsLoggedOn = true;
 
+            // Notify GUI that login succeeded
+            if (OnLoginSuccess != null)
+            {
+                if (UIDispatcher != null)
+                {
+                    UIDispatcher.Invoke(() => OnLoginSuccess.Invoke());
+                }
+                else
+                {
+                    OnLoginSuccess.Invoke();
+                }
+            }
+
             if (DepotDumper.Config.CellID == 0)
             {
                 Console.WriteLine("Using Steam3 suggested CellID: " + loggedOn.CellID);
@@ -878,10 +891,43 @@ namespace DepotDumper
         }
 
 
+        // Event for GUI QR code display
+        public static event Action<string, byte[][]>? OnQrCodeGenerated;
+
+        // Event for when login succeeds (to auto-close QR window)
+        public static event Action? OnLoginSuccess;
+
+        // Dispatcher for GUI events (set by GUI on startup)
+        public static System.Windows.Threading.Dispatcher? UIDispatcher { get; set; }
+
         public static void DisplayQrCode(string challengeUrl)
         {
             using var qrGenerator = new QRCodeGenerator();
             var qrCodeData = qrGenerator.CreateQrCode(challengeUrl, QRCodeGenerator.ECCLevel.L);
+
+            // Notify GUI if subscribed
+            if (OnQrCodeGenerated != null)
+            {
+                var matrix = new byte[qrCodeData.ModuleMatrix.Count][];
+                for (int i = 0; i < qrCodeData.ModuleMatrix.Count; i++)
+                {
+                    matrix[i] = new byte[qrCodeData.ModuleMatrix[i].Count];
+                    for (int j = 0; j < qrCodeData.ModuleMatrix[i].Count; j++)
+                    {
+                        matrix[i][j] = (byte)(qrCodeData.ModuleMatrix[i][j] ? 1 : 0);
+                    }
+                }
+
+                // If we have a UI dispatcher, invoke on it; otherwise invoke directly
+                if (UIDispatcher != null)
+                {
+                    UIDispatcher.Invoke(() => OnQrCodeGenerated.Invoke(challengeUrl, matrix));
+                }
+                else
+                {
+                    OnQrCodeGenerated.Invoke(challengeUrl, matrix);
+                }
+            }
 
             char darkBlock = '█';
             char lightBlock = ' ';

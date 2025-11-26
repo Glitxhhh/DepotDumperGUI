@@ -10,12 +10,71 @@ using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using SteamKit2;
 using SteamKit2.CDN;
+
 namespace DepotDumper
 {
-    class Program
+    public class Program
     {
+        [STAThread]
+        public static int Main(string[] args)
+        {
+            // Attach console for CLI mode (WinExe hides it by default)
+            if (args.Length > 0 || HasParameter(args, "-cli") || HasParameter(args, "--cli"))
+            {
+                AttachConsole();
+            }
+
+            // Check if GUI mode is requested
+            bool isGuiMode = HasParameter(args, "-gui") || HasParameter(args, "--gui");
+            bool isCliMode = args.Length > 0 || HasParameter(args, "-cli") || HasParameter(args, "--cli");
+
+            // Default to GUI if double-clicked with no args
+            if (!isGuiMode && !isCliMode)
+            {
+                isGuiMode = true;
+            }
+
+            if (isGuiMode && !isCliMode)
+            {
+                // Launch GUI
+                try
+                {
+                    var app = new GUI.App();
+                    var mainWindow = new GUI.MainWindow();
+                    app.Run(mainWindow);
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"GUI Error: {ex.Message}\n\nPress any key to exit...",
+                        "DepotDumper Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return 1;
+                }
+            }
+            else
+            {
+                // Launch CLI
+                return MainAsync(args).GetAwaiter().GetResult();
+            }
+        }
+
+        [DllImport("kernel32.dll")]
+        private static extern bool AttachConsole(int dwProcessId);
+
+        [DllImport("kernel32.dll")]
+        private static extern bool AllocConsole();
+
+        private static void AttachConsole()
+        {
+            // Try to attach to parent console, if fails create new one
+            if (!AttachConsole(-1))
+            {
+                AllocConsole();
+            }
+        }
         public static int IndexOfParam(string[] args, string param)
         {
             for (var x = 0; x < args.Length; ++x)
@@ -51,7 +110,9 @@ namespace DepotDumper
             }
             return default;
         }
-        static async Task<int> Main(string[] args)
+
+        // Public wrapper for GUI access and CLI entry point
+        public static async Task<int> MainAsync(string[] args)
         {
             string configPathArg = null;
             ConfigFile config = null;

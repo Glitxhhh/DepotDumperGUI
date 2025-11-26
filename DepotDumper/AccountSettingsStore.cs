@@ -32,7 +32,14 @@ namespace DepotDumper
         public static void LoadFromFile(string filename)
         {
             if (Loaded)
-                throw new Exception("Config already loaded");
+            {
+                // Already loaded, just update the filename if needed
+                if (Instance.FileName != filename)
+                {
+                    Instance.FileName = filename;
+                }
+                return;
+            }
             if (IsolatedStorage.FileExists(filename))
             {
                 try
