@@ -6,9 +6,11 @@
     <StartupObject>DepotDumper.Program</StartupObject>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <RollForward>LatestMajor</RollForward>
-    <Version>3.0.0</Version>
-    <Description>Steam Depot Key Dumping Utility with GUI</Description>
-    <Authors>SteamRE Team, Morrenus</Authors>
+    <Version>1.0.0</Version>
+    <Product>Depot Dumper GUI</Product>
+    <AssemblyTitle>Depot Dumper GUI</AssemblyTitle>
+    <Description>Depot Dumper GUI - dump Steam depot keys, luas and manifests</Description>
+    <Authors>Glitxh, Morrenus, SteamRE Team</Authors>
     <Copyright>Copyright © SteamRE Team 2025</Copyright>
     <ApplicationIcon>..\Icon\DepotDownloader.ico</ApplicationIcon>
     <Deterministic>true</Deterministic>
@@ -19,13 +21,31 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+    <!-- allows '?' type annotations everywhere without turning on nullable flow warnings for the older code -->
+    <Nullable>annotations</Nullable>
   </PropertyGroup>
+
+  <!--
+    Developer tools (screenshot rendering, CDN probe) live in *.Local.cs files that are git-ignored, so they only exist on the
+    developer's PC. They compile only when built with -p:DevTools=true, and such a build is stamped "-dev". Public releases
+    (GitHub Actions) can never contain them: the files are not in the repository and the release workflow refuses to build if any exist.
+  -->
+  <PropertyGroup Condition="'$(DevTools)' == 'true'">
+    <DefineConstants>$(DefineConstants);DEVTOOLS</DefineConstants>
+    <InformationalVersion>$(Version)-dev</InformationalVersion>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(DevTools)' != 'true'">
+    <Compile Remove="**\*.Local.cs" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="protobuf-net" Version="3.2.45" />
     <PackageReference Include="QRCoder" Version="1.6.0" />
     <PackageReference Include="SteamKit2" Version="3.0.1" />
     <PackageReference Include="System.Windows.Extensions" Version="8.0.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
     <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.162">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

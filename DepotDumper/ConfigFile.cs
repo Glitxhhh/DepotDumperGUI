@@ -8,7 +8,19 @@ namespace DepotDumper
     public class ConfigFile
     {
         public string Username { get; set; }
+
+        /// <summary>The Steam password, in memory only. On disk it is stored encrypted as <see cref="PasswordProtected"/>.</summary>
+        [JsonIgnore]
         public string Password { get; set; }
+
+        /// <summary>Password encrypted with Windows DPAPI (base64). Only this Windows user on this PC can decrypt it.</summary>
+        public string PasswordProtected { get; set; }
+
+        /// <summary>Only used to read config.json files written by older versions, which stored the password as plain text. Never written.</summary>
+        [JsonPropertyName("Password")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string LegacyPlainPassword { get; set; }
+
         public bool RememberPassword { get; set; } = false;
         public bool UseQrCode { get; set; } = false;
         public int CellID { get; set; } = 0;
@@ -17,9 +29,19 @@ namespace DepotDumper
         public uint? LoginID { get; set; } = null;
         public string DumpDirectory { get; set; } = "dumps";
         public bool UseNewNamingFormat { get; set; } = true;
-        public int MaxConcurrentApps { get; set; } = 1;
+        public int MaxConcurrentApps { get; set; } = 3;
         public string LogLevel { get; set; } = "Info";
         public bool DownloadManifests { get; set; } = true;
+        public bool DeleteOldManifests { get; set; } = false;
+        public bool DownloadHistoricalManifests { get; set; } = false;
+        public bool DynamicConcurrency { get; set; } = true;
+        public int MaxParallelDepots { get; set; } = 24;
+        public double MaxMemoryGb { get; set; } = 0;
+        public bool CollectAfterRun { get; set; } = true;
+        public bool CollectPublicOnly { get; set; } = false;
+        public bool CollectNoBeta { get; set; } = false;
+        public bool CollectLatestOnly { get; set; } = false;
+        public bool CollectIncludeSteamDepotCache { get; set; } = false;
         public HashSet<uint> AppIdsToProcess { get; set; } = new HashSet<uint>();
         public HashSet<uint> ExcludedAppIds { get; set; } = new HashSet<uint>();
 
@@ -37,9 +59,7 @@ namespace DepotDumper
             }
         }
 
-        private static readonly string DefaultConfigPath = Path.Combine(
-            AppContext.BaseDirectory,
-            "config.json");
+        private static string DefaultConfigPath => AppPaths.ConfigFile;
 
         public static ConfigFile Load()
         {
@@ -73,7 +93,9 @@ namespace DepotDumper
                     Logger.Warning($"Configuration file at '{path}' is empty. Using default settings.");
                     return new ConfigFile();
                 }
-                return JsonSerializer.Deserialize<ConfigFile>(json, options) ?? new ConfigFile();
+                var loaded = JsonSerializer.Deserialize<ConfigFile>(json, options) ?? new ConfigFile();
+                loaded.DecryptPassword(path);
+                return loaded;
             }
             catch (JsonException jsonEx)
             {
@@ -122,6 +144,9 @@ namespace DepotDumper
                     WriteIndented = true,
                     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
                 };
+                // the password never reaches the file as text: only the DPAPI-encrypted form is written
+                PasswordProtected = string.IsNullOrEmpty(Password) ? null : Secrets.Protect(Password);
+                LegacyPlainPassword = null;
                 string json = JsonSerializer.Serialize(this, options);
                 File.WriteAllText(path, json);
                 Console.WriteLine($"Configuration saved to {path}");
@@ -132,6 +157,29 @@ namespace DepotDumper
                 string errorMessage = $"Error saving configuration file to '{path}': {ex.Message}";
                 Console.WriteLine(errorMessage);
                 Logger.Error($"{errorMessage} - StackTrace: {ex.StackTrace}");
+            }
+        }
+
+        /// <summary>Fills <see cref="Password"/> from the encrypted value, and upgrades an old plain-text file to the encrypted form.</summary>
+        private void DecryptPassword(string path)
+        {
+            if (!string.IsNullOrEmpty(PasswordProtected))
+            {
+                if (Secrets.TryUnprotect(PasswordProtected, out var plain)) Password = plain;
+                else Logger.Warning("The saved password in the settings file can't be decrypted (it was saved by another Windows user or on another PC). Enter it again.");
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(LegacyPlainPassword))
+            {
+                Password = LegacyPlainPassword;
+                LegacyPlainPassword = null;
+                try
+                {
+                    Save(path);   // rewrites the file with the encrypted form and no plain-text password
+                    Logger.Info("The saved password was stored as plain text; it is now encrypted for your Windows account.");
+                }
+                catch (Exception ex) { Logger.Warning($"Could not re-save the settings file with an encrypted password: {ex.Message}"); }
             }
         }
 
@@ -146,10 +194,22 @@ namespace DepotDumper
             DepotDumper.Config.MaxDownloads = this.MaxDownloads;
             DepotDumper.Config.MaxServers = this.MaxServers;
             DepotDumper.Config.LoginID = this.LoginID;
-            DepotDumper.Config.DumpDirectory = this.DumpDirectory;
+            DepotDumper.Config.DumpDirectory = AppPaths.ResolveDumpDir(this.DumpDirectory);   // always absolute from here on
             DepotDumper.Config.UseNewNamingFormat = this.UseNewNamingFormat;
             DepotDumper.Config.LogLevel = this.LogLevel;
             DepotDumper.Config.DownloadManifests = this.DownloadManifests;
+            DepotDumper.Config.DeleteOldManifests = this.DeleteOldManifests;
+            DepotDumper.Config.DownloadHistoricalManifests = this.DownloadHistoricalManifests;
+            DepotDumper.Config.DynamicConcurrency = this.DynamicConcurrency;
+            DepotDumper.Config.MaxParallelDepots = this.MaxParallelDepots;
+            DepotDumper.Config.MaxMemoryGb = this.MaxMemoryGb;
+            DepotDumper.Config.MaxConcurrentApps = this.MaxConcurrentApps;
+            DepotDumper.Config.CollectAfterRun = this.CollectAfterRun;
+            DepotDumper.Config.CollectPublicOnly = this.CollectPublicOnly;
+            DepotDumper.Config.CollectNoBeta = this.CollectNoBeta;
+            DepotDumper.Config.CollectLatestOnly = this.CollectLatestOnly;
+            DepotDumper.Config.CollectIncludeSteamDepotCache = this.CollectIncludeSteamDepotCache;
+            ManifestLedger.UseDirectory(AppPaths.ResolveDumpDir(this.DumpDirectory));
             DepotDumper.Config.BranchFilter = this.BranchFilter;
             
             if (DepotDumper.Config.ExcludedAppIds != null)
@@ -204,8 +264,8 @@ namespace DepotDumper
             }
             if (Program.HasParameter(args, "-dump-directory") || Program.HasParameter(args, "-dir"))
             {
-                DumpDirectory = Program.GetParameter<string>(args, "-dump-directory") ??
-                               Program.GetParameter<string>(args, "-dir");
+                var cliDir = Program.GetParameter<string>(args, "-dump-directory") ?? Program.GetParameter<string>(args, "-dir");
+                if (!string.IsNullOrWhiteSpace(cliDir)) DumpDirectory = Path.GetFullPath(cliDir);   // a path typed on the command line is relative to where it was typed
             }
             if (Program.HasParameter(args, "-max-concurrent-apps"))
             {
@@ -222,6 +282,50 @@ namespace DepotDumper
             if (Program.HasParameter(args, "-no-manifests"))
             {
                 DownloadManifests = false;
+            }
+            if (Program.HasParameter(args, "-delete-old-manifests"))
+            {
+                DeleteOldManifests = true;
+            }
+            if (Program.HasParameter(args, "-history"))
+            {
+                DownloadHistoricalManifests = true;
+            }
+            if (Program.HasParameter(args, "-no-dynamic"))
+            {
+                DynamicConcurrency = false;     // one depot at a time, like earlier versions
+            }
+            if (Program.HasParameter(args, "-dynamic"))
+            {
+                DynamicConcurrency = true;
+            }
+            if (Program.HasParameter(args, "-max-parallel-depots"))
+            {
+                MaxParallelDepots = Program.GetParameter(args, "-max-parallel-depots", MaxParallelDepots);
+            }
+            if (Program.HasParameter(args, "-memory-limit"))
+            {
+                MaxMemoryGb = Program.GetParameter(args, "-memory-limit", MaxMemoryGb);   // in GB, e.g. 2.5
+            }
+            if (Program.HasParameter(args, "-no-collect"))
+            {
+                CollectAfterRun = false;
+            }
+            if (Program.HasParameter(args, "-collect-public-only"))
+            {
+                CollectPublicOnly = true;
+            }
+            if (Program.HasParameter(args, "-collect-no-beta"))
+            {
+                CollectNoBeta = true;
+            }
+            if (Program.HasParameter(args, "-collect-latest-only"))
+            {
+                CollectLatestOnly = true;
+            }
+            if (Program.HasParameter(args, "-collect-depotcache"))
+            {
+                CollectIncludeSteamDepotCache = true;
             }
             if (Program.HasParameter(args, "-branch"))
             {

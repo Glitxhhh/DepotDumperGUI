@@ -6,6 +6,9 @@ using System.Threading;
 
 namespace DepotDumper
 {
+    public readonly record struct LiveStats(int PlannedApps, int AppsStarted, int AppsDone, int Depots, int DepotsDone,
+        int Manifests, int ManifestsNew, int ManifestsReused, int ManifestsFailed, int Errors, string CurrentApp);
+
     public static class StatisticsTracker
     {
         private static readonly object Lock = new object();
@@ -24,10 +27,27 @@ namespace DepotDumper
         private static int skippedManifests = 0;
         private static int failedManifests = 0;
 
+        private static int plannedApps = 0;
+        private static string currentAppName = "";
+
+        public static void SetPlannedApps(int count) => Interlocked.Exchange(ref plannedApps, count);
+
+        /// <summary>Cheap snapshot for live UI progress (no logging, no summary building).</summary>
+        public static LiveStats GetLive()
+        {
+            lock (Lock)
+            {
+                return new LiveStats(plannedApps, totalApps, successfulApps + failedApps, totalDepots, successfulDepots + failedDepots,
+                    totalManifests, newManifests, skippedManifests, failedManifests, errors.Count, currentAppName);
+            }
+        }
+
         public static void Initialize()
         {
             lock (Lock)
             {
+                plannedApps = 0;
+                currentAppName = "";
                 currentSummary = new OperationSummary
                 {
                     StartTime = DateTime.Now
@@ -53,6 +73,7 @@ namespace DepotDumper
         {
             lock (Lock)
             {
+                currentAppName = string.IsNullOrWhiteSpace(appName) ? $"App {appId}" : appName;
                 if (!appSummaries.ContainsKey(appId))
                 {
                     Interlocked.Increment(ref totalApps);
@@ -123,14 +144,6 @@ namespace DepotDumper
                 {
                     Logger.Warning($"[TrackAppCompletion] AppSummary not found for app {appId} during completion tracking.");
                 }
-            }
-        }
-
-        public static bool IsAppTracked(uint appId)
-        {
-            lock (Lock)
-            {
-                return appSummaries.ContainsKey(appId);
             }
         }
 

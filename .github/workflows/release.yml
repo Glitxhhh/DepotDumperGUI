@@ -1,0 +1,100 @@
+# Shared release logic (called by auto-release.yml and manual-release.yml; not run on its own).
+#
+# Versioning:  MAJOR.MINOR.PATCH
+#   minor  - bumped automatically on every push to master:   1.3.x -> 1.4.0
+#   patch  - manual only:                                     1.4.0 -> 1.4.1
+#   major  - manual only, when you decide:                    1.4.1 -> 2.0.0
+# The very first release uses <Version> from DepotDumper/DepotDumper.csproj (1.0.0). Raising <Version> above the
+# latest release also wins. The computed version is stamped into the build; nothing is committed back.
+
+name: Release (shared)
+
+on:
+  workflow_call:
+    inputs:
+      bump:
+        description: 'minor | patch | major'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Developer tools live in git-ignored *.Local.cs files and only compile with -p:DevTools=true (a local "-dev" build).
+    # A public release must never contain them, so refuse to build if any such file or flag is present.
+    - name: Refuse developer-tool builds
+      shell: pwsh
+      run: |
+        $local = Get-ChildItem -Recurse -Filter '*.Local.cs' -ErrorAction SilentlyContinue
+        if ($local) { throw "Developer-only files found in the checkout: $($local.FullName -join ', ')" }
+        Write-Host 'No developer-only files in the checkout.'
+
+    - name: Setup .NET 9.0
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+
+    - name: Work out the release version
+      id: version
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        [xml]$proj = Get-Content DepotDumper/DepotDumper.csproj
+        $base = [version]($proj.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1)
+
+        # highest existing release tag of the form vX.Y.Z
+        $latest = gh release list --repo "${{ github.repository }}" --limit 200 --json tagName --jq '.[].tagName' |
+            ForEach-Object { if ($_ -match '^v(\d+\.\d+\.\d+)$') { [version]$Matches[1] } } |
+            Sort-Object -Descending | Select-Object -First 1
+
+        if (-not $latest -or $base -gt $latest) {
+            $next = $base                                                     # first release, or csproj raised on purpose
+        } else {
+            switch ('${{ inputs.bump }}') {
+                'major' { $next = [version]::new($latest.Major + 1, 0, 0) }
+                'patch' { $next = [version]::new($latest.Major, $latest.Minor, $latest.Build + 1) }
+                'minor' { $next = [version]::new($latest.Major, $latest.Minor + 1, 0) }
+                default { throw "Unknown bump '${{ inputs.bump }}'" }
+            }
+        }
+        "version=$next" >> $env:GITHUB_OUTPUT
+        "tag=v$next" >> $env:GITHUB_OUTPUT
+        Write-Host "Releasing v$next (bump=${{ inputs.bump }}, csproj $base, latest release $latest)"
+
+    - name: Restore dependencies
+      run: dotnet restore "DepotDumper/DepotDumper.csproj"
+
+    # Self-contained single-file build (settings live in the csproj); the version is stamped in here
+    - name: Publish
+      run: dotnet publish "DepotDumper/DepotDumper.csproj" --configuration Release --no-restore --output publish -p:Version=${{ steps.version.outputs.version }} -p:DevTools=false
+
+    - name: Package
+      shell: pwsh
+      run: Compress-Archive -Path publish/* -DestinationPath "DepotDumperGUI-${{ steps.version.outputs.tag }}.zip"
+
+    - name: Create GitHub release
+      uses: softprops/action-gh-release@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.version.outputs.tag }}
+        target_commitish: ${{ github.sha }}
+        name: Depot Dumper GUI ${{ steps.version.outputs.tag }}
+        generate_release_notes: true
+        draft: false
+        prerelease: false
+        files: DepotDumperGUI-${{ steps.version.outputs.tag }}.zip

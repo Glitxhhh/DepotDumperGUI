@@ -1,0 +1,25 @@
+# Manual releases only - run from the Actions tab ("Run workflow").
+#   patch : 1.4.0 -> 1.4.1   (a hotfix / manual build of the current version)
+#   major : 1.4.1 -> 2.0.0   (only when you decide)
+name: Manual release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Which number to bump'
+        required: true
+        type: choice
+        options:
+          - patch
+          - major
+        default: patch
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    uses: ./.github/workflows/release.yml
+    with:
+      bump: ${{ inputs.bump }}

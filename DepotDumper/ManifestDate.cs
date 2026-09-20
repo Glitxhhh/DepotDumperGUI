@@ -140,42 +140,5 @@ namespace DepotDumper
             }
         }
 
-        /// <summary>
-        /// Determines the best date for a manifest and stores it for future use
-        /// </summary>
-        public static DateTime DetermineAndStoreDate(
-            uint depotId,
-            ulong manifestId,
-            string branch,
-            DepotManifest manifest,
-            DateTime fallbackDate)
-        {
-            // First check if we already have a stored date
-            DateTime? storedDate = GetDate(depotId, manifestId, branch);
-            if (storedDate.HasValue)
-            {
-                Logger.Debug($"Using stored date for manifest {manifestId}: {storedDate.Value}");
-                return storedDate.Value;
-            }
-
-            // Try to get the creation time from the manifest
-            DateTime determinedDate;
-
-            if (manifest != null && manifest.CreationTime.Year >= 2000)
-            {
-                determinedDate = manifest.CreationTime;
-                Logger.Debug($"Using manifest creation time for manifest {manifestId}: {determinedDate}");
-            }
-            else
-            {
-                determinedDate = fallbackDate;
-                Logger.Debug($"Using fallback date for manifest {manifestId}: {determinedDate}");
-            }
-
-            // Store the determined date
-            SetDate(depotId, manifestId, branch, determinedDate);
-
-            return determinedDate;
-        }
     }
 }

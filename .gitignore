@@ -125,3 +125,20 @@ Thumbs.db
 .editorconfig
 
 .fake
+# Depot Dumper GUI runtime files - can contain passwords and login tokens, never commit
+config.json
+account.config
+gui.settings.json
+portable.txt
+*.corrupt-*
+manifest_ledger.json*
+
+# local tooling state
+.claude/settings.local.json
+
+# local-only developer tools (never committed, never built by CI)
+*.Local.cs
+DevTools.*
+
+# local archive of code removed before 1.0.0 (also preserved in git history)
+archive/

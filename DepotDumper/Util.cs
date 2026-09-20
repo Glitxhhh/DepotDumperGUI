@@ -11,30 +11,6 @@ namespace DepotDumper
 {
     static class Util
     {
-        public static string GetSteamOS()
-        {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                return "windows";
-            }
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            {
-                return "macos";
-            }
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-            {
-                return "linux";
-            }
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.FreeBSD))
-            {
-                return "linux";
-            }
-            return "unknown";
-        }
-        public static string GetSteamArch()
-        {
-            return Environment.Is64BitOperatingSystem ? "64" : "32";
-        }
         public static string ReadPassword()
         {
             ConsoleKeyInfo keyInfo;
@@ -59,107 +35,6 @@ namespace DepotDumper
                 }
             } while (keyInfo.Key != ConsoleKey.Enter);
             return password.ToString();
-        }
-        public static List<DepotManifest.ChunkData> ValidateSteam3FileChecksums(FileStream fs, DepotManifest.ChunkData[] chunkdata)
-        {
-            var neededChunks = new List<DepotManifest.ChunkData>();
-            foreach (var data in chunkdata)
-            {
-                fs.Seek((long)data.Offset, SeekOrigin.Begin);
-                var adler = AdlerHash(fs, (int)data.UncompressedLength);
-                if (!adler.SequenceEqual(BitConverter.GetBytes(data.Checksum)))
-                {
-                    neededChunks.Add(data);
-                }
-            }
-            return neededChunks;
-        }
-        public static byte[] AdlerHash(Stream stream, int length)
-        {
-            uint a = 0, b = 0;
-            for (var i = 0; i < length; i++)
-            {
-                var c = (uint)stream.ReadByte();
-                a = (a + c) % 65521;
-                b = (b + a) % 65521;
-            }
-            return BitConverter.GetBytes(a | (b << 16));
-        }
-        public static byte[] FileSHAHash(string filename)
-        {
-            using (var fs = File.Open(filename, FileMode.Open))
-            using (var sha = SHA1.Create())
-            {
-                var output = sha.ComputeHash(fs);
-                return output;
-            }
-        }
-        public static DepotManifest LoadManifestFromFile(string directory, uint depotId, ulong manifestId, bool badHashWarning)
-        {
-            var filename = Path.Combine(directory, string.Format("{0}_{1}.manifest", depotId, manifestId));
-            if (File.Exists(filename))
-            {
-                byte[] expectedChecksum;
-                try
-                {
-                    expectedChecksum = File.ReadAllBytes(filename + ".sha");
-                }
-                catch (IOException)
-                {
-                    expectedChecksum = null;
-                }
-                var currentChecksum = FileSHAHash(filename);
-                if (expectedChecksum != null && expectedChecksum.SequenceEqual(currentChecksum))
-                {
-                    return DepotManifest.LoadFromFile(filename);
-                }
-                else if (badHashWarning)
-                {
-                    Console.WriteLine("Manifest {0} on disk did not match the expected checksum.", manifestId);
-                }
-            }
-            filename = Path.Combine(directory, string.Format("{0}_{1}.bin", depotId, manifestId));
-            if (File.Exists(filename))
-            {
-                byte[] expectedChecksum;
-                try
-                {
-                    expectedChecksum = File.ReadAllBytes(filename + ".sha");
-                }
-                catch (IOException)
-                {
-                    expectedChecksum = null;
-                }
-                byte[] currentChecksum;
-                var oldManifest = ProtoManifest.LoadFromFile(filename, out currentChecksum);
-                if (oldManifest != null && (expectedChecksum == null || !expectedChecksum.SequenceEqual(currentChecksum)))
-                {
-                    oldManifest = null;
-                    if (badHashWarning)
-                    {
-                        Console.WriteLine("Manifest {0} on disk did not match the expected checksum.", manifestId);
-                    }
-                }
-                if (oldManifest != null)
-                {
-                    return oldManifest.ConvertToSteamManifest(depotId);
-                }
-            }
-            return null;
-        }
-        public static bool SaveManifestToFile(string directory, DepotManifest manifest)
-        {
-            try
-            {
-                var filename = Path.Combine(directory, string.Format("{0}_{1}.manifest", manifest.DepotID, manifest.ManifestGID));
-                manifest.SaveToFile(filename);
-                File.WriteAllBytes(filename + ".sha", FileSHAHash(filename));
-                return true;
-            }
-            catch (Exception)
-            {
-                return false;
-            }
         }
         public static byte[] DecodeHexString(string hex)
         {
@@ -205,12 +80,30 @@ namespace DepotDumper
                 tasksInFlight.Remove(completedTask);
             } while (index < queue.Length || tasksInFlight.Count != 0);
         }
+        // "<appId>.<branch>.<yyyy-MM-dd_HH-mm-ss>.<app name>". Branch and app names may contain dots (branches like "5.6.2" or
+        // "v1.0.6.1"), so the folder name is parsed by its date stamp rather than by splitting on every dot.
+        private static readonly System.Text.RegularExpressions.Regex FolderNameRx = new System.Text.RegularExpressions.Regex(
+            @"^(?<app>\d+)\.(?<branch>.+?)\.(?<date>\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})(\.|$)", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        public static bool TryParseFolderName(string folderName, out string branch, out DateTime date)
+        {
+            branch = null; date = default;
+            var m = FolderNameRx.Match(folderName ?? "");
+            if (!m.Success) return false;
+            if (!DateTime.TryParseExact(m.Groups["date"].Value, "yyyy-MM-dd_HH-mm-ss", System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None, out date)) return false;
+            branch = m.Groups["branch"].Value;
+            return true;
+        }
+
     public static DateTime? GetDateFromFolderName(string folderPath)
         {
             try
             {
                 // Get just the folder name from the path
                 string folderName = Path.GetFileName(folderPath);
+
+                if (TryParseFolderName(folderName, out _, out var stampedDate)) return stampedDate;   // handles dotted branch names
                 
                 // Example format: "284830.public.2014-04-23_12-01-22.Clockwork Tales_ Of Glass and Ink"
                 
@@ -288,6 +181,16 @@ namespace DepotDumper
                     // Extract the branch name from the folder name
                     // Format: "284830.public.2014-04-23_12-01-22.Clockwork Tales_ Of Glass and Ink"
                     string folderName = Path.GetFileName(folder);
+
+                    // Dotted branch names ("5.6.2", "v1.0.6.1") can't be found by splitting on '.', so read them by the date stamp first
+                    if (TryParseFolderName(folderName, out var stampedBranch, out var stampedDate))
+                    {
+                        string cleanStamped = stampedBranch.Replace('/', '_').Replace('\\', '_');
+                        result[cleanStamped] = stampedDate;
+                        Logger.Debug($"Found date {stampedDate} for branch '{cleanStamped}' in folder {folderName}");
+                        continue;
+                    }
+
                     string[] parts = folderName.Split('.');
                     
                     if (parts.Length < 3)

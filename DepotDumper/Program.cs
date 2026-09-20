@@ -16,20 +16,28 @@ using SteamKit2.CDN;
 
 namespace DepotDumper
 {
-    public class Program
+    public partial class Program
     {
+        // Developer hooks. They are implemented only in the git-ignored DevTools.Local.cs of a local "-p:DevTools=true" build;
+        // in every other build (including all GitHub releases) they compile to nothing.
+        static partial void DevForceGui(string[] args, ref bool forceGui);
+        static partial void DevConfigureWindow(GUI.MainWindow window, string[] args);
+        static partial void DevSteamTool(string[] args, ref Func<Task> tool);
+
         [STAThread]
         public static int Main(string[] args)
         {
+            // GUI is the default; any other arguments mean CLI mode unless -gui is given explicitly
+            bool devForceGui = false;
+            DevForceGui(args, ref devForceGui);   // no-op unless this is a local developer build
+            bool isGuiMode = devForceGui || HasParameter(args, "-gui") || HasParameter(args, "--gui");
+            bool isCliMode = HasParameter(args, "-cli") || HasParameter(args, "--cli") || (args.Length > 0 && !isGuiMode);
+
             // Attach console for CLI mode (WinExe hides it by default)
-            if (args.Length > 0 || HasParameter(args, "-cli") || HasParameter(args, "--cli"))
+            if (isCliMode)
             {
                 AttachConsole();
             }
-
-            // Check if GUI mode is requested
-            bool isGuiMode = HasParameter(args, "-gui") || HasParameter(args, "--gui");
-            bool isCliMode = args.Length > 0 || HasParameter(args, "-cli") || HasParameter(args, "--cli");
 
             // Default to GUI if double-clicked with no args
             if (!isGuiMode && !isCliMode)
@@ -44,13 +52,14 @@ namespace DepotDumper
                 {
                     var app = new GUI.App();
                     var mainWindow = new GUI.MainWindow();
+                    DevConfigureWindow(mainWindow, args);   // no-op unless this is a local developer build
                     app.Run(mainWindow);
                     return 0;
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"GUI Error: {ex.Message}\n\nPress any key to exit...",
-                        "DepotDumper Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show($"GUI Error: {ex}",
+                        "Depot Dumper GUI", MessageBoxButton.OK, MessageBoxImage.Error);
                     return 1;
                 }
             }
@@ -121,7 +130,7 @@ namespace DepotDumper
             if (isDoubleClick)
             {
                 Console.WriteLine("DepotDumper started via double-click...");
-                string configPath = Path.Combine(AppContext.BaseDirectory, "config.json");
+                string configPath = AppPaths.ConfigFile;
                 config = ConfigFile.Load(configPath);
                 config.ApplyToDepotDumperConfig();
                 List<string> effectiveArgs = new List<string>();
@@ -154,7 +163,7 @@ namespace DepotDumper
                 return result;
             }
             configPathArg = GetParameter<string>(args, "-config");
-            string defaultConfigPath = Path.Combine(AppContext.BaseDirectory, "config.json");
+            string defaultConfigPath = AppPaths.ConfigFile;
             string pathToLoad = configPathArg ?? defaultConfigPath;
             bool loadConfigFromFile = !string.IsNullOrEmpty(configPathArg) || File.Exists(defaultConfigPath);
             config = loadConfigFromFile
@@ -162,9 +171,13 @@ namespace DepotDumper
                  : new ConfigFile();
             config.MergeCommandLineParameters(args);
             config.ApplyToDepotDumperConfig();
+            DepotDumper.BeginRun();
+            Throttle.Start(DepotDumper.Config.DynamicConcurrency,
+                DepotDumper.Config.MaxParallelDepots > 0 ? DepotDumper.Config.MaxParallelDepots : 24,
+                (int)Math.Max(0, DepotDumper.Config.MaxMemoryGb * 1024));
             Ansi.Init();
             DebugLog.Enabled = false;
-            AccountSettingsStore.LoadFromFile(Path.Combine(AppContext.BaseDirectory, "account.config"));
+            AccountSettingsStore.LoadFromFile(AppPaths.AccountFile);
             bool generateReports = HasParameter(args, "-generate-reports");
             string dumpPath = string.IsNullOrWhiteSpace(DepotDumper.Config.DumpDirectory) ? DepotDumper.DEFAULT_DUMP_DIR : DepotDumper.Config.DumpDirectory;
             try { Directory.CreateDirectory(dumpPath); } catch (Exception ex) { Console.WriteLine($"Warning: Could not create dump directory '{dumpPath}': {ex.Message}"); }
@@ -198,6 +211,11 @@ namespace DepotDumper
                 DebugLog.Enabled = true;
                 DebugLog.AddListener((category, message) => { Logger.Debug($"[{category}] {message}"); });
                 Logger.Info("Debug logging enabled.");
+            }
+            // Offline tools: no Steam login needed
+            if (HasParameter(args, "-collect-only") || HasParameter(args, "-scan-local") || HasParameter(args, "-import-ids"))
+            {
+                return RunOfflineTools(args, dumpPath);
             }
             bool saveConfig = HasParameter(args, "-save-config");
             var username = config.Username;
@@ -274,6 +292,15 @@ namespace DepotDumper
             bool success = false;
             if (InitializeSteam(username, ref password, isDoubleClick))
             {
+                // Developer tool hook: runs a tool that needs the Steam session (none exists in release builds)
+                Func<Task> devTool = null;
+                DevSteamTool(args, ref devTool);
+                if (devTool != null)
+                {
+                    try { await devTool(); }
+                    finally { Throttle.Stop(); DepotDumper.ShutdownSteam3(); }
+                    return 0;
+                }
                 if (processAll)
                 {
                     Console.WriteLine("Waiting for license list...");
@@ -405,8 +432,15 @@ namespace DepotDumper
                 finally
                 {
                     ManifestDateTracker.SaveToFile();
-                    DepotDumper.ShutdownSteam3();
-                    ManifestDate.Save();                    
+                    ManifestLedger.SaveToFile();
+                    Throttle.Stop();
+                    DepotDumper.ShutdownSteam3();          // done with Steam: disconnect before the slow local work
+                    ManifestDate.Save();
+                    if (DepotDumper.Config.CollectAfterRun)
+                    {
+                        if (DepotDumper.StopRequested) Logger.Info("Stopped: skipping the automatic collection. Use \"Collect now\" on the Dashboard when you want it.");
+                        else RunCollection(dumpPath);
+                    }
                     if (isDoubleClick) { PlayCompletionSound(success); }
                 }
             }
@@ -525,8 +559,72 @@ namespace DepotDumper
             _ = Task.Run(DepotDumper.steam3.TickCallbacks);
             return true;
         }
+        public static CollectOptions BuildCollectOptions(string dumpPath, bool manifestsOnly = false) => new CollectOptions
+        {
+            DumpDir = dumpPath,
+            PublicOnly = DepotDumper.Config.CollectPublicOnly,
+            NoBeta = DepotDumper.Config.CollectNoBeta,
+            LatestOnly = DepotDumper.Config.CollectLatestOnly,
+            IncludeSteamDepotCache = DepotDumper.Config.CollectIncludeSteamDepotCache,
+            ManifestsOnly = manifestsOnly,
+        };
+
+        /// <summary>Pools luas and manifests into dumps\luas and dumps\manifests (never throws).</summary>
+        static void RunCollection(string dumpPath)
+        {
+            try
+            {
+                Logger.Info("Collecting luas and manifests into the pooled folders...");
+                var result = Collector.Run(BuildCollectOptions(dumpPath), m => Logger.Info(m), ct: DepotDumper.StopToken);
+                foreach (var line in result.ToString().Split('\n')) Logger.Info(line.TrimEnd());
+            }
+            catch (OperationCanceledException)
+            {
+                Logger.Info("Collection stopped.");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Collection failed: {ex.Message}");
+            }
+        }
+
+        static int RunOfflineTools(string[] args, string dumpPath)
+        {
+            try
+            {
+                var importFile = GetParameter<string>(args, "-import-ids");
+                if (importFile != null)
+                {
+                    var r = ManifestHistory.ImportIds(importFile, m => { Logger.Info(m); Console.WriteLine(m); });
+                    if (r.Added + r.AlreadyKnown + r.Invalid == 0) Console.WriteLine("No manifest IDs found in that file.");
+                }
+                if (HasParameter(args, "-scan-local"))
+                {
+                    Console.WriteLine("Scanning local dumps and Steam depotcache for manifests...");
+                    var opts = BuildCollectOptions(dumpPath, manifestsOnly: true);
+                    opts.PublicOnly = false; opts.NoBeta = false; opts.LatestOnly = false; opts.IncludeSteamDepotCache = true;
+                    Console.WriteLine(Collector.Run(opts, Console.WriteLine).ToString());
+                }
+                if (HasParameter(args, "-collect-only"))
+                {
+                    Console.WriteLine(Collector.Run(BuildCollectOptions(dumpPath), Console.WriteLine).ToString());
+                }
+                var s = ManifestLedger.GetStats();
+                Console.WriteLine($"Manifest history: {s.Total} known, {s.Downloaded} downloaded, {s.Pending} pending, {s.Unavailable} unavailable.");
+                ManifestLedger.SaveToFile();
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Offline tool failed: {ex}");
+                Console.WriteLine($"Error: {ex.Message}");
+                return 1;
+            }
+        }
+
         static async Task ProcessMultipleAppsAsync(List<uint> appIds, bool select, string dumpPath, int maxConcurrent)
         {
+            StatisticsTracker.SetPlannedApps(appIds.Count);
             if (maxConcurrent <= 0) maxConcurrent = 1;
             Console.WriteLine($"Processing {appIds.Count} app IDs with concurrency level: {maxConcurrent}");
             Logger.Info($"Processing {appIds.Count} app IDs with concurrency level: {maxConcurrent}");
@@ -535,7 +633,9 @@ namespace DepotDumper
             var results = new ConcurrentDictionary<uint, bool>();
             foreach (uint appId in appIds)
             {
+                if (DepotDumper.StopRequested) break;
                 await semaphore.WaitAsync();
+                if (DepotDumper.StopRequested) { semaphore.Release(); break; }
                 tasks.Add(Task.Run(async () =>
                 {
                     bool appSuccess = false;

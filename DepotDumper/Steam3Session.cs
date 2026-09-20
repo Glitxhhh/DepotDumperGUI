@@ -27,13 +27,14 @@ namespace DepotDumper
             private set;
         }
 
-        public Dictionary<uint, ulong> AppTokens { get; } = [];
-        public Dictionary<uint, ulong> PackageTokens { get; } = [];
-        public Dictionary<uint, byte[]> DepotKeys { get; } = [];
+        // Thread-safe: depots of an app are dumped in parallel and all read/write these.
+        public ConcurrentDictionary<uint, ulong> AppTokens { get; } = [];
+        public ConcurrentDictionary<uint, ulong> PackageTokens { get; } = [];
+        public ConcurrentDictionary<uint, byte[]> DepotKeys { get; } = [];
         public ConcurrentDictionary<(uint, string), TaskCompletionSource<SteamContent.CDNAuthToken>> CDNAuthTokens { get; } = [];
-        public Dictionary<uint, SteamApps.PICSProductInfoCallback.PICSProductInfo> AppInfo { get; } = [];
-        public Dictionary<uint, SteamApps.PICSProductInfoCallback.PICSProductInfo> PackageInfo { get; } = [];
-        public Dictionary<string, byte[]> AppBetaPasswords { get; } = [];
+        public ConcurrentDictionary<uint, SteamApps.PICSProductInfoCallback.PICSProductInfo> AppInfo { get; } = [];
+        public ConcurrentDictionary<uint, SteamApps.PICSProductInfoCallback.PICSProductInfo> PackageInfo { get; } = [];
+        public ConcurrentDictionary<string, byte[]> AppBetaPasswords { get; } = [];
 
         public SteamClient steamClient;
         public SteamUser steamUser;
@@ -269,32 +270,6 @@ namespace DepotDumper
         }
 
 
-        public async Task<bool> RequestFreeAppLicense(uint appId)
-        {
-            if (bAborted) return false;
-
-            try
-            {
-                var resultInfo = await steamApps.RequestFreeLicense(new List<uint> { appId });
-
-                if (resultInfo == null)
-                {
-                    Logger.Warning($"RequestFreeLicense for app {appId} returned null.");
-                    return false;
-                }
-
-                bool granted = resultInfo.GrantedApps.Contains(appId);
-                Logger.Info($"RequestFreeLicense for app {appId}: Result={resultInfo.Result}, Granted={granted}");
-                return granted;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Failed to request FreeOnDemand license for app {appId}: {ex.Message}");
-                Logger.Error($"Exception during RequestFreeLicense for app {appId}: {ex}");
-                return false;
-            }
-        }
-
 
         public async Task RequestDepotKey(uint depotId, uint appid = 0)
 {
@@ -302,12 +277,22 @@ namespace DepotDumper
         return;
 
     Logger.Info($"Requesting depot key for {depotId} using app context {appid}");
+    var keyTimer = System.Diagnostics.Stopwatch.StartNew();
     var depotKeyResult = await steamApps.GetDepotDecryptionKey(depotId, appid);
-    
+    keyTimer.Stop();
+    Throttle.ReportLatency(keyTimer.Elapsed);   // small, consistent request: a good "is Steam responding normally?" signal
+
     if (depotKeyResult == null)
     {
         Logger.Error($"GetDepotDecryptionKey for depot {depotId} (app context {appid}) returned null.");
+        Throttle.ReportFailure();
         return;
+    }
+
+    if (depotKeyResult.Result is EResult.RateLimitExceeded or EResult.LimitExceeded or EResult.Busy
+        or EResult.ServiceUnavailable)   // NOT Timeout: Steam answers Timeout for depots this account has no key for
+    {
+        Throttle.ReportRateLimited($"Steam answered {depotKeyResult.Result} for the key of depot {depotId}");
     }
     
     Console.WriteLine("Got depot key for {0} result: {1}", depotKeyResult.DepotID, depotKeyResult.Result);
@@ -617,13 +602,14 @@ namespace DepotDumper
                                 Password = logonDetails.Password,
                                 IsPersistentSession = DepotDumper.Config.RememberPassword,
                                 GuardData = guarddata,
-                                Authenticator = new UserConsoleAuthenticator(),
+                                Authenticator = new AppAuthenticator(),
                             });
                         }
                         catch (TaskCanceledException) { return; }
                         catch (Exception ex)
                         {
                             Console.Error.WriteLine("Failed to authenticate with Steam: " + ex.Message);
+                            Logger.Error("Failed to authenticate with Steam: " + ex.Message);
                             Abort(false);
                             return;
                         }
@@ -636,7 +622,7 @@ namespace DepotDumper
                             var session = await steamClient.Authentication.BeginAuthSessionViaQRAsync(new AuthSessionDetails
                             {
                                 IsPersistentSession = DepotDumper.Config.RememberPassword,
-                                Authenticator = new UserConsoleAuthenticator(),
+                                Authenticator = new AppAuthenticator(),
                             });
                             authSession = session;
                             session.ChallengeURLChanged = () =>
@@ -650,6 +636,7 @@ namespace DepotDumper
                         catch (Exception ex)
                         {
                             Console.Error.WriteLine("Failed to authenticate with Steam: " + ex.Message);
+                            Logger.Error("Failed to authenticate with Steam: " + ex.Message);
                             Abort(false);
                             return;
                         }
@@ -768,11 +755,9 @@ namespace DepotDumper
 
                 if (is2FA)
                 {
-                    do
-                    {
-                        Console.Write("Please enter your 2 factor auth code from your authenticator app: ");
-                        logonDetails.TwoFactorCode = Console.ReadLine();
-                    } while (string.Empty == logonDetails.TwoFactorCode);
+                    logonDetails.TwoFactorCode = ReadAuthCode(AuthPromptKind.DeviceCode, null,
+                        "Please enter your 2 factor auth code from your authenticator app: ");
+                    if (logonDetails.TwoFactorCode == null) return;
                 }
                 else if (isAccessToken)
                 {
@@ -785,11 +770,9 @@ namespace DepotDumper
                 }
                 else
                 {
-                    do
-                    {
-                        Console.Write("Please enter the authentication code sent to your email address: ");
-                        logonDetails.AuthCode = Console.ReadLine();
-                    } while (string.Empty == logonDetails.AuthCode);
+                    logonDetails.AuthCode = ReadAuthCode(AuthPromptKind.EmailCode, logonDetails.Username,
+                        "Please enter the authentication code sent to your email address: ");
+                    if (logonDetails.AuthCode == null) return;
                 }
 
                 Console.Write("Retrying Steam3 connection...");
@@ -890,6 +873,33 @@ namespace DepotDumper
             }
         }
 
+
+        // Set by the GUI to collect Steam Guard codes; when null, codes are read from the console.
+        public static Func<AuthPromptKind, string?, bool, Task<string?>>? AuthCodePrompt { get; set; }
+
+        // Legacy logon-result path (LogOnCallback): returns the code, or null if the user cancelled.
+        private static string ReadAuthCode(AuthPromptKind kind, string account, string consolePrompt)
+        {
+            var prompt = AuthCodePrompt;
+            if (prompt != null)
+            {
+                var code = prompt(kind, account, false).GetAwaiter().GetResult();
+                if (string.IsNullOrWhiteSpace(code))
+                {
+                    Logger.Error("Steam Guard code entry was cancelled.");
+                    return null;
+                }
+                return code.Trim();
+            }
+
+            string line;
+            do
+            {
+                Console.Write(consolePrompt);
+                line = Console.ReadLine();
+            } while (string.IsNullOrEmpty(line));
+            return line;
+        }
 
         // Event for GUI QR code display
         public static event Action<string, byte[][]>? OnQrCodeGenerated;

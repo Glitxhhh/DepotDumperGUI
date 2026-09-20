@@ -8,7 +8,7 @@
         Height="650" Width="550"
         MinHeight="500" MinWidth="450"
         WindowStartupLocation="CenterScreen"
-        Background="#FF2B2B2B"
+        Background="{DynamicResource BgBrush}" Foreground="{DynamicResource TextBrush}" FontFamily="{StaticResource UiFont}"
         ResizeMode="CanResize"
         SizeToContent="Manual">
     <Grid Margin="20">
@@ -24,7 +24,7 @@
                    Text="Scan QR Code with Steam Mobile App"
                    FontSize="16"
                    FontWeight="Bold"
-                   Foreground="White"
+                   Foreground="{DynamicResource TextBrush}"
                    HorizontalAlignment="Center"
                    Margin="0,0,0,20"/>
 
@@ -52,7 +52,7 @@
         <TextBlock Grid.Row="2"
                    Text="1. Open the Steam Mobile App&#x0a;2. Tap the menu and select 'Sign in with QR Code'&#x0a;3. Scan this code to log in"
                    FontSize="12"
-                   Foreground="#FFAAAAAA"
+                   Foreground="{DynamicResource MutedBrush}"
                    HorizontalAlignment="Center"
                    TextAlignment="Center"
                    Margin="0,20,0,0"
@@ -66,24 +66,6 @@
                 HorizontalAlignment="Center"
                 Padding="40,10"
                 Margin="0,20,0,0"
-                Background="#FF0078D7"
-                Foreground="White"
-                BorderThickness="0"
-                FontWeight="SemiBold"
-                Cursor="Hand">
-            <Button.Style>
-                <Style TargetType="Button">
-                    <Setter Property="Background" Value="#FF0078D7"/>
-                    <Setter Property="Foreground" Value="White"/>
-                    <Setter Property="BorderThickness" Value="0"/>
-                    <Setter Property="Cursor" Value="Hand"/>
-                    <Style.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter Property="Background" Value="#FF0063B1"/>
-                        </Trigger>
-                    </Style.Triggers>
-                </Style>
-            </Button.Style>
-        </Button>
+                Style="{StaticResource PrimaryButton}"/>
     </Grid>
 </Window>

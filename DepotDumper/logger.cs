@@ -105,38 +105,10 @@ namespace DepotDumper
             }
         }
 
-        public static void SetLogLevel(string levelString)
-        {
-            if (Enum.TryParse<LogLevel>(levelString, true, out LogLevel level))
-            {
-                minLogLevel = level;
-            }
-        }
         public static void Debug(string message) => Log(LogLevel.Debug, message);
         public static void Info(string message) => Log(LogLevel.Info, message);
         public static void Warning(string message) => Log(LogLevel.Warning, message);
         public static void Error(string message) => Log(LogLevel.Error, message);
         public static void Critical(string message) => Log(LogLevel.Critical, message);
-        public static List<string> GetErrors()
-        {
-            lock (LogLock)
-            {
-                return new List<string>(errorLog);
-            }
-        }
-        public static int GetErrorCount()
-        {
-            lock (LogLock)
-            {
-                return errorLog.Count;
-            }
-        }
-        public static void ClearErrors()
-        {
-            lock (LogLock)
-            {
-                errorLog.Clear();
-            }
-        }
     }
 }

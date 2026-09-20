@@ -14,6 +14,10 @@ namespace DepotDumper
         private readonly uint appId;
         public Client CDNClient { get; }
         public Server ProxyServer { get; private set; }
+        // Servers that recently answered 503/502/504/429 during this run: new pools list them last for a few minutes
+        private static readonly ConcurrentDictionary<string, DateTime> recentlyBad = new ConcurrentDictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        public static void MarkBad(string host) { if (!string.IsNullOrEmpty(host)) recentlyBad[host] = DateTime.UtcNow; }
+        private static bool IsRecentlyBad(string host) => recentlyBad.TryGetValue(host, out var at) && DateTime.UtcNow - at < TimeSpan.FromMinutes(5);
         private readonly ConcurrentStack<Server> activeConnectionPool = [];
         private readonly BlockingCollection<Server> availableServerEndpoints = [];
         private readonly AutoResetEvent populatePoolEvent = new(true);
@@ -74,7 +78,7 @@ namespace DepotDumper
                             AccountSettingsStore.Instance.ContentServerPenalty.TryGetValue(server.Host, out var penalty);
                             return (server, penalty);
                         })
-                        .OrderBy(pair => pair.penalty).ThenBy(pair => pair.server.WeightedLoad);
+                        .OrderBy(pair => pair.penalty + (IsRecentlyBad(pair.server.Host) ? 1000 : 0)).ThenBy(pair => pair.server.WeightedLoad);
                     foreach (var (server, weight) in weightedCdnServers)
                     {
                         for (var i = 0; i < server.NumEntries; i++)
