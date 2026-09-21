@@ -13,6 +13,10 @@ namespace DepotDumper
         public uint DepotId { get; set; }
         public ulong ManifestId { get; set; }
         public uint AppId { get; set; }
+        /// <summary>The DLC app this manifest belongs to when it is a DLC's own depot (AppId then names the base game). 0 = the base game itself / unknown.</summary>
+        public uint ContentAppId { get; set; }
+        /// <summary>When Steam built this manifest (its own creation time). Used to order versions; null until read.</summary>
+        public DateTime? CreatedUtc { get; set; }
         public List<string> Branches { get; set; } = new List<string>();
         /// <summary>SHA-256 (lowercase hex) of the .manifest file. Null if the ID is known but not downloaded.</summary>
         public string Sha256 { get; set; }
@@ -137,6 +141,31 @@ namespace DepotDumper
 
                 if (++unsavedChanges >= SaveEveryNChanges) SaveLocked();
                 return isNew;
+            }
+        }
+
+        public static void SetCreated(uint depotId, ulong manifestId, DateTime createdUtc)
+        {
+            EnsureInit();
+            lock (fileLock)
+            {
+                if (!entries.TryGetValue(GetKey(depotId, manifestId), out var e) || e.CreatedUtc == createdUtc) return;
+                e.CreatedUtc = createdUtc;
+                if (++unsavedChanges >= SaveEveryNChanges) SaveLocked();
+            }
+        }
+
+        /// <summary>Links a manifest to the base game folder (directoryAppId) and, for a DLC's own depot, to that DLC.</summary>
+        public static void SetContentApp(uint depotId, ulong manifestId, uint contentAppId, uint baseAppId)
+        {
+            EnsureInit();
+            lock (fileLock)
+            {
+                if (!entries.TryGetValue(GetKey(depotId, manifestId), out var e)) return;
+                var changed = false;
+                if (baseAppId != 0 && e.AppId != baseAppId) { e.AppId = baseAppId; changed = true; }
+                if (e.ContentAppId != contentAppId) { e.ContentAppId = contentAppId; changed = true; }
+                if (changed && ++unsavedChanges >= SaveEveryNChanges) SaveLocked();
             }
         }
 

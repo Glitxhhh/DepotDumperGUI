@@ -110,6 +110,52 @@ namespace DepotDumper
                 $"DepotDownloader.exe -app {i.AppId} -depot {i.DepotId} -manifest {i.ManifestId} -username {user} -remember-password -dir \"downgrade\\{i.AppId}\""));
         }
 
+        /// <summary>The manifest file for a depot version: the pool (dumps\manifests) first, then anywhere inside the app's own folder.</summary>
+        public static string FindManifestFile(string dumpDir, uint appId, uint depotId, ulong manifestId)
+        {
+            var name = $"{depotId}_{manifestId}.manifest";
+            var pooled = Path.Combine(dumpDir, "manifests", name);
+            if (File.Exists(pooled)) return pooled;
+            var appDir = Path.Combine(dumpDir, appId.ToString());
+            return Directory.Exists(appDir) ? Directory.EnumerateFiles(appDir, name, SearchOption.AllDirectories).FirstOrDefault() : null;
+        }
+
+        public sealed record Resolved(List<(Item Item, byte[] Key, string ManifestPath)> Ready, List<string> MissingKeys, List<string> MissingManifests);
+
+        /// <summary>
+        /// Finds, for each selected depot/manifest, its saved depot key (the app's .key file in your dumps) and the manifest file
+        /// (dumps\manifests, or inside the app's own folders). Depots without either are reported by name.
+        /// </summary>
+        public static Resolved Resolve(IEnumerable<Item> items, string dumpDir)
+        {
+            var list = items.DistinctBy(i => (i.DepotId, i.ManifestId)).ToList();
+            var keys = new Dictionary<uint, string>();
+            foreach (var app in list.Select(i => i.AppId).Distinct())
+            {
+                var appDir = Path.Combine(dumpDir, app.ToString());
+                if (!Directory.Exists(appDir)) continue;
+                foreach (var file in Directory.EnumerateFiles(appDir, "*.key"))
+                    foreach (var line in File.ReadLines(file))
+                    {
+                        var parts = line.Trim().Split(';');
+                        if (parts.Length >= 2 && uint.TryParse(parts[0], out var depot) && parts[1].Length > 0) keys.TryAdd(depot, parts[1]);
+                    }
+            }
+
+            var ready = new List<(Item, byte[], string)>();
+            var missingKeys = new List<string>();
+            var missingManifests = new List<string>();
+            foreach (var i in list)
+            {
+                if (!keys.TryGetValue(i.DepotId, out var key)) { missingKeys.Add($"depot {i.DepotId}"); continue; }
+                var name = $"{i.DepotId}_{i.ManifestId}.manifest";
+                var source = FindManifestFile(dumpDir, i.AppId, i.DepotId, i.ManifestId);
+                if (source == null) { missingManifests.Add(name); continue; }
+                ready.Add((i, Util.DecodeHexString(key), source));
+            }
+            return new Resolved(ready, missingKeys, missingManifests);
+        }
+
         public static string BatchFile(IEnumerable<Item> items, string username)
         {
             var sb = new StringBuilder();

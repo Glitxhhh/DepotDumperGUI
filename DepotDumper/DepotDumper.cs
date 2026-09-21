@@ -42,12 +42,14 @@ namespace DepotDumper
         public static CancellationToken StopToken => runCts.Token;
         public static void BeginRun()
         {
+            PauseControl.Resume();   // a new run never starts paused
             var old = Interlocked.Exchange(ref runCts, new CancellationTokenSource());
             old.Dispose();
         }
         public static void RequestStop()
         {
             Logger.Warning("Stop requested - finishing in-flight downloads, then stopping.");
+            PauseControl.Resume();   // wake anything waiting so it can see the stop
             runCts.Cancel();
         }
         public const string DEFAULT_DUMP_DIR = "dumps";
@@ -60,6 +62,7 @@ namespace DepotDumper
             public readonly ConcurrentDictionary<string, DateTime> BranchLastModified = new ConcurrentDictionary<string, DateTime>();
             public readonly ConcurrentHashSet<string> ProcessedBranches = new ConcurrentHashSet<string>();
             public int AnyNewManifests;
+            public int Failures;   // depots/manifests of this app that failed (not refusals): the app is not "finished" while any exist
         }
         private static readonly AsyncLocal<AppRunState> currentAppState = new AsyncLocal<AppRunState>();
         private static readonly AppRunState fallbackAppState = new AppRunState();
@@ -1268,6 +1271,7 @@ namespace DepotDumper
                 directoryAppId = appId;
             }
 
+            await PauseControl.WaitIfPausedAsync();
             if (StopRequested) return;
 
             bool manifestDownloaded = false;
@@ -1348,6 +1352,7 @@ namespace DepotDumper
                 if (existingIsValid)
                 {
                     manifestSkipped = true;
+                    ManifestLedger.SetContentApp(depotId, manifestId, appId != directoryAppId ? appId : 0u, directoryAppId);
                     Logger.Info($"Manifest {manifestId} exists for depot {depotId} branch '{branch}' and passed validation, skipping completely.");
 
                     // Check if this manifest is in our date tracker
@@ -1379,6 +1384,7 @@ namespace DepotDumper
                 if (ManifestLedger.IsRecentlyUnavailable(depotId, manifestId, branch))
                 {
                     Logger.Info($"Skipping manifest {manifestId} (depot {depotId}, branch '{branch}'): Steam recently gave no request code for it.");
+                    ManifestLedger.SetContentApp(depotId, manifestId, appId != directoryAppId ? appId : 0u, directoryAppId);
                     return;
                 }
 
@@ -1409,18 +1415,27 @@ namespace DepotDumper
                 // At this point we know we need to download the manifest
                 try
                 {
-                    Logger.Info($"DownloadManifestAsync called for manifest {manifestId}, depot {depotId}, app {appId}, branch '{branch}'");
                     manifest = await DownloadManifestAsync(depotId, appId, manifestId, branch, cdnPoolInstance);
                     if (manifest != null)
                         Logger.Debug($"Manifest {manifestId}: Download successful. Manifest.CreationTime = {manifest.CreationTime}");
-                    else
+                    else if (!ManifestLedger.IsRecentlyUnavailable(depotId, manifestId, branch))
                         Logger.Warning($"Manifest {manifestId}: Download failed (manifest is null).");
                 }
                 catch (Exception ex)
                 {
                     string errorMsg = $"Error downloading manifest {manifestId}: {ex.Message}";
+                    Interlocked.Increment(ref AppState.Failures);
                     manifestErrors.Add(errorMsg);
                     Logger.Error($"{errorMsg} - StackTrace: {ex.StackTrace}");
+                }
+
+
+                // Steam refused this manifest on this branch (no download code). That is an answer, not a failure: it is remembered in the
+                // ledger (retried after a few days) and is not counted as an error.
+                if (manifest == null && manifestErrors.Count == 0 && ManifestLedger.IsRecentlyUnavailable(depotId, manifestId, branch))
+                {
+                    Logger.Info($"Steam gave no download code for manifest {manifestId} (depot {depotId}, branch '{branch}'): skipped, will be retried in a few days.");
+                    return;
                 }
 
                 if (manifest != null)
@@ -1431,6 +1446,8 @@ namespace DepotDumper
                         manifestDownloaded = true;
                         ManifestLedger.Record(depotId, manifestId, directoryAppId, branch,
                             ManifestLedger.ComputeSha256(fullManifestPath), new FileInfo(fullManifestPath).Length, "downloaded");
+                            ManifestLedger.SetContentApp(depotId, manifestId, appId != directoryAppId ? appId : 0u, directoryAppId);
+                            if (manifest.CreationTime.Year >= 2000) ManifestLedger.SetCreated(depotId, manifestId, manifest.CreationTime.ToUniversalTime());
 
                         // For newly downloaded manifests, get the date from the manifest itself
                         if (manifest.CreationTime.Year >= 2000)
@@ -1476,6 +1493,7 @@ namespace DepotDumper
                     catch (Exception ex)
                     {
                         string errorMsg = $"Failed to save manifest {manifestId} to file {fullManifestPath}: {ex.Message}";
+                        Interlocked.Increment(ref AppState.Failures);
                         manifestErrors.Add(errorMsg);
                         Logger.Error($"{errorMsg} - StackTrace: {ex.StackTrace}");
                         StatisticsTracker.TrackManifestProcessing(depotId, manifestId, branch, false, false, fullManifestPath, manifestErrors, null);
@@ -1484,6 +1502,7 @@ namespace DepotDumper
                 else
                 {
                     manifestErrors.Add($"Download failed (manifest null) for {manifestId}");
+                    Interlocked.Increment(ref AppState.Failures);
                     Logger.Error($"DownloadManifestAsync returned null for manifest {manifestId}, depot {depotId}, branch '{branch}'.");
                     StatisticsTracker.TrackManifestProcessing(depotId, manifestId, branch, false, false, null, manifestErrors, null);
                     Logger.Warning($"[ProcessManifestIndividuallyAsync] Manifest {manifestId} download failed for depot {depotId} branch '{branch}'");
@@ -1492,6 +1511,7 @@ namespace DepotDumper
             catch (Exception ex)
             {
                 string errorMsg = $"Outer error processing manifest {manifestId}: {ex.Message}";
+                Interlocked.Increment(ref AppState.Failures);
                 manifestErrors.Add(errorMsg);
                 Console.WriteLine($"Error processing manifest: {errorMsg}");
                 Logger.Error($"{errorMsg} - StackTrace: {ex.StackTrace}");
@@ -1534,6 +1554,8 @@ namespace DepotDumper
 
         private static async Task DownloadOneHistoricalAsync(uint depotId, uint appId, ManifestLedgerEntry entry, string dumpPath, CDNClientPool pool)
         {
+            await PauseControl.WaitIfPausedAsync();
+            if (StopRequested) return;
             var fileName = $"{depotId}_{entry.ManifestId}.manifest";
             var poolPath = Path.Combine(Collector.ManifestDir(dumpPath), fileName);
             var branch = entry.Branches.FirstOrDefault() ?? DEFAULT_BRANCH;
@@ -1563,7 +1585,49 @@ namespace DepotDumper
             Logger.Info($"Downloaded historical manifest {entry.ManifestId} for depot {depotId}.");
         }
 
+        // The same depot+manifest is often listed under many branches (30+ for some games). It is requested and downloaded once and the
+        // result shared, instead of asking Steam and a CDN again for every branch. Entries are dropped when the depot finishes.
+        // A refusal is NOT shared: Steam can refuse a manifest on one branch and serve it on another.
+        private static readonly ConcurrentDictionary<(uint Depot, ulong Manifest), Task<DepotManifest>> manifestFetches = new();
+
+        private static void ForgetManifestFetches(uint depotId)
+        {
+            foreach (var key in manifestFetches.Keys)
+                if (key.Depot == depotId) manifestFetches.TryRemove(key, out _);
+        }
+
         private static async Task<DepotManifest> DownloadManifestAsync(uint depotId, uint appId, ulong manifestId, string branch, CDNClientPool cdnPoolInstance)
+        {
+            var key = (depotId, manifestId);
+            var mine = new TaskCompletionSource<DepotManifest>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var first = manifestFetches.GetOrAdd(key, mine.Task);
+            if (!ReferenceEquals(first, mine.Task))
+            {
+                DepotManifest shared = null;
+                try { shared = await first.ConfigureAwait(false); } catch (Exception) { /* the first attempt failed: fall through and ask for this branch */ }
+                if (shared != null)
+                {
+                    Logger.Info($"Reusing manifest {manifestId} (depot {depotId}) already downloaded for another branch; nothing new to request for branch '{branch}'.");
+                    return shared;
+                }
+                return await DownloadManifestCoreAsync(depotId, appId, manifestId, branch, cdnPoolInstance).ConfigureAwait(false);
+            }
+
+            try
+            {
+                var downloaded = await DownloadManifestCoreAsync(depotId, appId, manifestId, branch, cdnPoolInstance).ConfigureAwait(false);
+                if (downloaded == null) manifestFetches.TryRemove(key, out _);   // nothing to share: later branches try for themselves
+                mine.TrySetResult(downloaded);
+                return downloaded;
+            }
+            catch
+            {
+                manifestFetches.TryRemove(key, out _);
+                mine.TrySetResult(null);
+                throw;
+            }
+        }
+        private static async Task<DepotManifest> DownloadManifestCoreAsync(uint depotId, uint appId, ulong manifestId, string branch, CDNClientPool cdnPoolInstance)
         {
             Logger.Info($"DownloadManifestAsync called for manifest {manifestId}, depot {depotId}, app {appId}, branch '{branch}'");
 
@@ -1628,7 +1692,7 @@ namespace DepotDumper
 
                             if (manifestRequestCode == 0)
                             {
-                                Logger.Warning($"Failed to get manifest request code for {manifestId}");
+                                Logger.Info($"Failed to get manifest request code for {manifestId}");
                                 // Steam refuses this manifest on this branch (e.g. Valve-internal 'local' branches). Remember it so later runs skip it
                                 // instead of asking every time; it is tried again after a few days.
                                 ManifestLedger.Record(depotId, manifestId, appId, branch, null, 0, "seen");
@@ -1657,7 +1721,7 @@ namespace DepotDumper
                     {
                         if (e.StatusCode == HttpStatusCode.TooManyRequests || e.StatusCode == HttpStatusCode.ServiceUnavailable
                             || e.StatusCode == HttpStatusCode.BadGateway || e.StatusCode == HttpStatusCode.GatewayTimeout)
-                            Throttle.ReportRateLimited($"CDN {connection?.Host} answered {(int?)e.StatusCode} for manifest {manifestId}");
+                            Throttle.ReportCdnOverload(connection?.Host, $"CDN {connection?.Host} answered {(int?)e.StatusCode} for manifest {manifestId}");
 
                         if (e.StatusCode == HttpStatusCode.Forbidden && steam3 != null && !steam3.CDNAuthTokens.ContainsKey((depotId, connection.Host)))
                         {
@@ -1715,7 +1779,7 @@ namespace DepotDumper
                             Logger.Warning($"Operation canceled downloading manifest {manifestId}.");
                             break;
                         }
-                        Throttle.ReportRateLimited($"a Steam request timed out for manifest {manifestId} (too many requests in flight)");
+                        Logger.Info($"A Steam request timed out for manifest {manifestId}; the request gate is easing off.");   // counted by the gate, not double-counted here
                         retryCount++;
                         if (retryCount >= maxRetries)
                         {
@@ -1963,11 +2027,13 @@ namespace DepotDumper
             {
                 Console.WriteLine($"Error dumping depot {depotId}: {e.Message}");
                 Logger.Error($"Error dumping depot {depotId}: {e.ToString()}");
+                Interlocked.Increment(ref AppState.Failures);
                 StatisticsTracker.TrackDepotCompletion(depotId, false, new List<string> { e.Message });
                 Throttle.ReportFailure();
             }
             finally
             {
+                ForgetManifestFetches(depotId);
                 currentCdnPool?.Shutdown();
             }
         }
@@ -2063,6 +2129,7 @@ namespace DepotDumper
                         Console.WriteLine("No depots section found for app {0}", specificAppId);
                         Logger.Warning($"No depots section found for app {specificAppId}");
                         StatisticsTracker.TrackAppCompletion(specificAppId, true, new List<string> { "No depots found" });
+                        RunCheckpoint.MarkDone(specificAppId);
                         return;
                     }
 
@@ -2071,6 +2138,7 @@ namespace DepotDumper
                         Console.WriteLine("Skipping app {0}: {1} (detected as non-processed type)", specificAppId, appName);
                         Logger.Info($"Skipping app {specificAppId}: {appName} (detected as non-processed type)");
                         StatisticsTracker.TrackAppCompletion(specificAppId, true, new List<string> { "Skipped (non-processed type)" });
+                        RunCheckpoint.MarkDone(specificAppId);
                         return;
                     }
 
@@ -2193,6 +2261,9 @@ namespace DepotDumper
                         await CreateZipsForApp(directoryAppId, dumpPath, isDlc ? GetAppName(parentAppId) : appName);
                     CleanupEmptyDirectories(Path.Combine(dumpPath, directoryAppId.ToString()));   // only this app's folder: other apps may be mid-write
                     StatisticsTracker.TrackAppCompletion(specificAppId, true);
+                    if (StopRequested) { }
+                    else if (Volatile.Read(ref AppState.Failures) == 0) RunCheckpoint.MarkDone(specificAppId);
+                    else Logger.Warning($"App {specificAppId} had {AppState.Failures} failed depot(s)/manifest(s): it is not marked finished, so a Resume will retry it.");
 
                     // Clear all state information after finishing an app
                     branchLastModified.Clear();
@@ -2292,6 +2363,7 @@ namespace DepotDumper
                     // Process ALL found apps, no Take() limit
                     // "Parallel apps" now applies to whole-library runs too (it used to be ignored here: strictly one app at a time).
                     // The depot limiter (Throttle) still caps total network work, so more apps in flight cannot flood Steam.
+                    RunCheckpoint.Begin(dumpPath, Config.Username ?? "", RunCheckpoint.ScopeKey(Config.BranchFilter, Config.DownloadManifests), allAppIds.Count, Config.ResumeRun, System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "");
                     var appLimiter = new DynamicLimiter(select ? 1 : Math.Max(1, Config.MaxConcurrentApps));   // interactive -select stays sequential
                     var appTasks = new List<Task>();
                     foreach (var appIdToRun in allAppIds)
@@ -2303,14 +2375,16 @@ namespace DepotDumper
                             if (StopRequested) return;
                             try
                             {
+                                if (RunCheckpoint.IsDone(appId)) { StatisticsTracker.TrackResumedApp(); return; }   // finished by an interrupted run
                                 // Skip invalid apps
                                 if (appId == 0 || appId == INVALID_APP_ID)
-                                    return;
+                                    { StatisticsTracker.TrackSkippedApp(); return; }
 
                                 // Double-check exclusion (in case it was missed earlier)
                                 if (Config.ExcludedAppIds != null && Config.ExcludedAppIds.Contains(appId))
                                 {
                                     Logger.Info($"Skipping excluded app {appId}");
+                                    StatisticsTracker.TrackSkippedApp();
                                     return;
                                 }
 
@@ -2320,10 +2394,12 @@ namespace DepotDumper
 
                                 if (string.IsNullOrEmpty(appName))
                                 {
+                                    StatisticsTracker.TrackSkippedApp();
                                     return;
                                 }
 
                                 (bool shouldProcess, var lastUpdated) = await ShouldProcessAppExtendedAsync(appId);
+                                if (!shouldProcess) { RunCheckpoint.MarkDone(appId); StatisticsTracker.TrackSkippedApp(); }
                                 if (!shouldProcess)
                                 {
                                     return;
@@ -2343,9 +2419,11 @@ namespace DepotDumper
                         }));
                     }
                     await Task.WhenAll(appTasks);
+                    RunCheckpoint.End(!StopRequested);   // every app visited: nothing left to resume
                 }
                 catch (Exception ex)
                 {
+                    RunCheckpoint.End(false);
                     Logger.Error($"Error during all apps processing: {ex.ToString()}");
                     Console.WriteLine($"Error during all apps processing: {ex.Message}");
                 }

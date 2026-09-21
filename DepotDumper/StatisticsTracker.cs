@@ -7,7 +7,7 @@ using System.Threading;
 namespace DepotDumper
 {
     public readonly record struct LiveStats(int PlannedApps, int AppsStarted, int AppsDone, int Depots, int DepotsDone,
-        int Manifests, int ManifestsNew, int ManifestsReused, int ManifestsFailed, int Errors, string CurrentApp);
+        int Manifests, int ManifestsNew, int ManifestsReused, int ManifestsFailed, int Errors, string CurrentApp, int AppsResumed);
 
     public static class StatisticsTracker
     {
@@ -28,17 +28,24 @@ namespace DepotDumper
         private static int failedManifests = 0;
 
         private static int plannedApps = 0;
+        private static int skippedApps = 0;
+        private static int resumedApps = 0;   // apps skipped because an interrupted run had already finished them
         private static string currentAppName = "";
 
         public static void SetPlannedApps(int count) => Interlocked.Exchange(ref plannedApps, count);
+
+        public static void TrackResumedApp() => Interlocked.Increment(ref resumedApps);
+
+        /// <summary>An app that was looked at and needs no dump (music, no depots, not owned...): it is done, so progress and time-left include it.</summary>
+        public static void TrackSkippedApp() => Interlocked.Increment(ref skippedApps);
 
         /// <summary>Cheap snapshot for live UI progress (no logging, no summary building).</summary>
         public static LiveStats GetLive()
         {
             lock (Lock)
             {
-                return new LiveStats(plannedApps, totalApps, successfulApps + failedApps, totalDepots, successfulDepots + failedDepots,
-                    totalManifests, newManifests, skippedManifests, failedManifests, errors.Count, currentAppName);
+                return new LiveStats(plannedApps, totalApps, successfulApps + failedApps + resumedApps + skippedApps, totalDepots, successfulDepots + failedDepots,
+                    totalManifests, newManifests, skippedManifests, failedManifests, errors.Count, currentAppName, resumedApps);
             }
         }
 
@@ -47,6 +54,8 @@ namespace DepotDumper
             lock (Lock)
             {
                 plannedApps = 0;
+                resumedApps = 0;
+                skippedApps = 0;
                 currentAppName = "";
                 currentSummary = new OperationSummary
                 {

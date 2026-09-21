@@ -213,7 +213,7 @@ namespace DepotDumper
                 Logger.Info("Debug logging enabled.");
             }
             // Offline tools: no Steam login needed
-            if (HasParameter(args, "-collect-only") || HasParameter(args, "-scan-local") || HasParameter(args, "-import-ids"))
+            if (HasParameter(args, "-collect-only") || HasParameter(args, "-scan-local") || HasParameter(args, "-import-ids") || HasParameter(args, "-export-tokens"))
             {
                 return RunOfflineTools(args, dumpPath);
             }
@@ -434,6 +434,15 @@ namespace DepotDumper
                     ManifestDateTracker.SaveToFile();
                     ManifestLedger.SaveToFile();
                     Throttle.Stop();
+                    try
+                    {
+                        if (DepotDumper.steam3 != null)
+                        {
+                            var saved = AccessTokens.Save(dumpPath, DepotDumper.steam3.AppTokens, DepotDumper.steam3.PackageTokens);
+                            Logger.Info($"Access tokens saved: {saved.Apps:N0} app, {saved.Packages:N0} package.");
+                        }
+                    }
+                    catch (Exception tokenEx) { Logger.Warning($"Could not save access tokens: {tokenEx.Message}"); }
                     DepotDumper.ShutdownSteam3();          // done with Steam: disconnect before the slow local work
                     ManifestDate.Save();
                     if (DepotDumper.Config.CollectAfterRun)
@@ -608,6 +617,12 @@ namespace DepotDumper
                 if (HasParameter(args, "-collect-only"))
                 {
                     Console.WriteLine(Collector.Run(BuildCollectOptions(dumpPath), Console.WriteLine).ToString());
+                }
+                var tokensOut = GetParameter<string>(args, "-export-tokens");
+                if (tokensOut != null)
+                {
+                    var t = AccessTokens.Export(dumpPath, tokensOut);
+                    Console.WriteLine(t.Apps + t.Packages == 0 ? "No access tokens saved yet: run a dump first." : $"Exported {t.Apps:N0} app and {t.Packages:N0} package tokens to {tokensOut}.");
                 }
                 var s = ManifestLedger.GetStats();
                 Console.WriteLine($"Manifest history: {s.Total} known, {s.Downloaded} downloaded, {s.Pending} pending, {s.Unavailable} unavailable.");

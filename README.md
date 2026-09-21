@@ -17,13 +17,21 @@
 <details>
 <summary>More screenshots</summary>
 
-| Manifest library + downgrade helper | Settings |
+| Manifest library + downgrade helper | Lua library |
 |---|---|
-| ![Manifest library](docs/screenshots/library-dark.png) | ![Settings](docs/screenshots/settings-dark.png) |
+| ![Manifest library](docs/screenshots/library-dark.png) | ![Lua library](docs/screenshots/lua-dark.png) |
 
-| Light theme | Graceful shutdown |
+| Settings | Light theme |
 |---|---|
-| ![Light theme](docs/screenshots/dashboard-light.png) | ![Shutting down](docs/screenshots/shutdown-dark.png) |
+| ![Settings](docs/screenshots/settings-dark.png) | ![Light theme](docs/screenshots/dashboard-light.png) |
+
+| Pause / resume | Resume prompt |
+|---|---|
+| ![Paused](docs/screenshots/paused-dark.png) | ![Resume prompt](docs/screenshots/dialog-resume-dark.png) |
+
+| Graceful shutdown |
+|---|
+| ![Shutting down](docs/screenshots/shutdown-dark.png) |
 
 </details>
 
@@ -48,14 +56,20 @@ It is a GUI fork of the [Morrenus Edition of DepotDumper](https://github.com/Mor
 - **Easy sign-in.** Steam Guard codes (authenticator app or email) are entered in a dialog. QR sign-in and remembered logins are supported too.
 - **Dark mode** (and a light theme), live progress, a searchable log, and a real **Stop** button that finishes in-flight downloads and stops cleanly, with a **Force shutdown** if you'd rather not wait.
 - **Fast, and gentle on Steam.** Dynamic speed runs many depots at once and adapts to Steam's responses and your PC's CPU and RAM (see [Speed and memory](#speed-and-memory)).
-- **Resilient downloads.** Failed manifest downloads retry with backoff; a CDN server that answers 503/502/504/429 is dropped for another one; manifests Steam refuses are remembered instead of retried forever.
+- **Resilient downloads.** Failed manifest downloads retry with backoff; a CDN server that answers 503/502/504/429 is dropped for another one; manifests Steam refuses are remembered instead of retried forever (and not counted as errors); a manifest listed under many branches is requested and downloaded only once.
 - **Pooled folders.** After a run, everything is collected into `dumps\luas` and `dumps\manifests` — including files inside the zips — with duplicates removed by SHA-256. Options: public branch only, skip beta/preview branches, newest lua per game only.
 - **Manifests are checked, then reused.** Existing manifests are validated (structure, IDs, size totals and a stored SHA-256) and skipped instead of re-downloaded; anything corrupt is set aside and fetched again. No `.sha` files are needed.
 - **Keeps old versions.** Older manifests are kept by default (deleting them is an option), so you can downgrade a game later.
-- **Manifest library.** Every manifest ID the app has ever seen is recorded and can be browsed and searched. Known IDs can be downloaded into the manifests pool.
-- **Downgrade helper.** Pick the manifests of an older version and copy ready-made Steam console or DepotDownloader commands (or save a `.bat`) to install it.
+- **Manifest library.** Every manifest ID the app has ever seen is recorded, grouped by app under collapsible headers (a game's DLC manifests sit under their own sub-headers, apart from the base game), **ordered newest to oldest** by when Steam built each manifest, and can be searched. Right-click a manifest to show its file in Explorer or copy its IDs. Known IDs can be downloaded into the manifests pool.
+- **Downgrade helper.** Pick the manifests of an older version and either download it right inside the app, or copy ready-made Steam console / DepotDownloader commands (or save a `.bat`).
+- **Lua library.** Browse, search and check every collected lua, one collapsible group per app with the newest version first, plus a preview and one-click copy or export. Right-click a lua to open it in your default program, show it in Explorer or copy its path.
 - **Send manifests to Steam.** One button copies your pooled manifests into Steam's own `depotcache` folder.
-- **Picks up where your dump left off.** The dashboard's Apps / Depots / Manifests totals are read from what's already on disk, so the numbers only go up between runs.
+- **Export all keys.** One button merges every depot key you have dumped into a single `depotId;key` file that other depot tools can read.
+- **Export access tokens.** The app and package access tokens Steam hands out during your dumps are saved as they arrive; one button (or `-export-tokens <folder>`) writes them out as `app.tokens` and `package.tokens`.
+- **Picks up where your dump left off.** The dashboard's Apps / Depots / Manifests totals are read from what's already on disk, so the numbers only go up between runs. If a whole-library dump is interrupted (Stop, Force shutdown, closing the app, a crash, or updating to a new version), the next Start offers to **resume**: apps it already finished are skipped. Manifests that are already on disk are always reused.
+- **Pause and resume.** A Pause button holds a running dump: nothing new starts while work already running finishes, and Resume carries on. The elapsed time and speed estimate ignore the pause.
+- **Resume button.** After you Stop a whole-library dump or close the app while it runs, the main button says **Resume** and continues where it left off.
+- **Live progress.** A progress bar with percentage, apps and manifests per minute, and an estimate of the time left.
 - **Multiple accounts.** Switch between saved logins from the sidebar; each keeps its own remembered session.
 
 ## Getting started
@@ -77,6 +91,7 @@ It is a GUI fork of the [Morrenus Edition of DepotDumper](https://github.com/Mor
 |---|---|
 | **Dashboard** | Totals from your dumps folder (apps, depots with a saved key, unique manifests) plus what's still queued to download, with this run's progress underneath. A progress bar, recent activity, and quick actions to collect, scan local files, open the output folders or send manifests to Steam. |
 | **Manifest library** | Every known manifest ID with its status (Downloaded / Pending / Unavailable), search, the **downgrade helper**, and tools to import IDs, scan local files and retry unavailable ones. |
+| **Lua library** | Every lua in your pooled `luas` folder: app, name, number of depot keys and DLC, how many of its manifests you have downloaded, and notes for problems (no keys, keys that differ from the `.key` file, missing manifests). Search, preview, copy the text, or save copies to another folder. Read-only: it never changes your files. |
 | **Settings** | Account, what to dump (app IDs, skip list, public-only), manifest and collection options, performance, output folder, log detail, import/export of settings. |
 | **Logs** | The live log with level filters and search. Full logs are also written to `dumps\logs`. |
 
@@ -113,8 +128,10 @@ Open the **Manifest library**, search for the game's app ID, and select the mani
 | **Steam console** | `download_depot <app> <depot> <manifest>` lines. Open `steam://open/console` (paste it into your browser's address bar or the Windows Run box), paste, and Steam downloads exactly that version. |
 | **DepotDownloader** | one `DepotDownloader.exe -app … -depot … -manifest …` command per depot, all writing into `downgrade\<appid>`. |
 | **Save .bat** | the same DepotDownloader commands as a script to double-click. |
+| **Download version…** | installs the selected version **inside the app**: it fetches the files straight from Steam's content servers, using the depot keys and manifests you already have. **No Steam login and no game ownership needed**, no other tools to install. Pick the folder of an earlier download and it **updates it in place**: data both versions share is reused, only the differences are downloaded (switching between two versions of a 30 MB depot downloaded about 0.05 MB), and files the new version no longer has can be removed. The button becomes **Cancel download** while it runs; interrupted or damaged downloads resume and repair themselves. |
+| **Verify folder…** | checks a game folder against the **one** selected manifest: every file's size and SHA-1 (read-only). Shows how many files match and lists the missing, wrong-size and different ones, so you can tell whether an install is an exact copy of that version. |
 
-Only manifests that are downloaded and have a known app ID can be used. You need to own the game on the account you sign in with.
+Only manifests that are downloaded and have a known app ID can be used. The first three options need you to own the game on the account you sign in with; **Download version…** and **Verify folder…** need the depot key to be in your dumps. Files are checked against the manifest as they download, into a folder per app.
 
 ## Sending manifests to Steam
 
@@ -147,6 +164,8 @@ DepotDumper -username <user> -password <pass> [options]
 | `-dump-directory <dir>` | output folder (default: `dumps` under `Documents\DepotDumperGUI`, or next to the exe in portable mode) |
 | `-delete-old-manifests` | remove older manifests when a newer one downloads |
 | `-history` | download known historical manifests |
+| `-resume` | continue an interrupted whole-library run, skipping the apps it already finished |
+| `-export-tokens <folder>` | write the saved `app.tokens` / `package.tokens` to a folder; no Steam login |
 | `-no-collect` | don't pool luas/manifests after the run |
 | `-collect-public-only` `-collect-no-beta` `-collect-latest-only` `-collect-depotcache` | collection filters |
 | `-collect-only` | just collect; no Steam login |
@@ -173,11 +192,11 @@ DepotDumper -username <user> -password <pass> [options]
 
 ## Speed and memory
 
-**Dynamic speed** (on by default) runs several depots at once and adapts as it goes. It starts small (up to 4 depots, fewer on a low-core or low-RAM PC) and speeds up while Steam keeps answering promptly, errors are rare, and your PC has CPU and RAM to spare. It eases off when Steam or a CDN rate-limits it (and then remembers the level that caused it, staying under it for a couple of minutes before probing higher), when errors pile up or responses slow down, or when CPU or free RAM get tight. Memory is judged by what's actually free, scaled to your PC's total RAM, so it works on small laptops and big workstations alike.
+**Dynamic speed** (on by default) runs several depots at once and adapts as it goes. It starts small (up to 4 depots, fewer on a low-core or low-RAM PC) and speeds up step by step while Steam keeps answering promptly, errors are rare, and your PC has CPU and RAM to spare. It eases off when Steam or a CDN rate-limits it (and then remembers the level that caused it, staying under it for a couple of minutes before probing higher), when errors pile up or responses slow down, or when CPU or free RAM get tight. Memory is judged by what's actually free, scaled to your PC's total RAM, so it works on small laptops and big workstations alike. Requests to Steam itself (depot keys, manifest codes, app info) also pass through a limit on how many can be outstanding at once, which backs off briefly when Steam times one out. The aim is a steady pace just under Steam's limit: an overload signal eases the speed for about a minute, never locks it down, and a single misbehaving CDN server is simply skipped instead of slowing the whole dump. If the pace holds because your PC is low on memory or CPU, the dashboard says so.
 
 | Setting | What it does |
 |---|---|
-| **Max parallel depots** (default 24) | the ceiling dynamic speed may climb to |
+| **Max parallel depots** (default 12) | the ceiling dynamic speed may climb to |
 | **Parallel apps** (default 3) | apps processed at the same time (the depot limit above still caps total load on Steam) |
 | **Manifests per depot** (default 4) | manifests downloaded at once inside one depot |
 | **Memory limit (GB)** | optional cap on the app's own RAM use; empty = automatic |
@@ -235,6 +254,8 @@ Releases are built by GitHub Actions; there is nothing to upload by hand. Versio
 
 The version is stamped into the build, and the release attaches `DepotDumperGUI-vX.Y.Z.zip` containing the exe.
 
+To push a commit **without** releasing (so you can cut a patch or major build yourself), put `[skip ci]` in the commit message.
+
 ## Credits
 
 Depot Dumper GUI is the latest link in a chain of forks:
@@ -244,7 +265,7 @@ Depot Dumper GUI is the latest link in a chain of forks:
 3. [MorrenusGames/DepotDumperMorrenusEdition](https://github.com/MorrenusGames/DepotDumperMorrenusEdition)
 4. [Glitxhhh/DepotDumperGUI](https://github.com/Glitxhhh/DepotDumperGUI) — this project, by Glitxh
 
-It also uses [SteamKit2](https://github.com/SteamRE/SteamKit) by the SteamRE team.
+It also uses [SteamKit2](https://github.com/SteamRE/SteamKit) by the SteamRE team. The in-app depot downloader is adapted from [DepotDownloaderMod](https://github.com/SteamAutoCracks/DepotDownloaderMod) (GPL-2.0).
 
 ## License
 

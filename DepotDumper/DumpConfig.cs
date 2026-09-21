@@ -17,9 +17,11 @@ namespace DepotDumper
         public bool DownloadManifests { get; set; } = true;
         public bool DeleteOldManifests { get; set; } = false; // keep older manifests by default (history for downgrading)
         public bool DynamicConcurrency { get; set; } = true;   // auto-adjust how many depots run at once
-        public int MaxParallelDepots { get; set; } = 24;       // ceiling for dynamic speed (it only reaches it while Steam and the PC keep up)
+        public int MaxParallelDepots { get; set; } = 12;       // ceiling for dynamic speed (it only reaches it while Steam and the PC keep up)
         public double MaxMemoryGb { get; set; } = 0;           // optional cap on this app's own memory; 0 = automatic
         public bool DownloadHistoricalManifests { get; set; } = false; // fetch known past manifest IDs into dumps\manifests
+        public string Username { get; set; } = null;     // the account being dumped (used to match a resumable run)
+        public bool ResumeRun { get; set; } = false;   // skip the apps an interrupted whole-library run already finished
 
         // Pool luas/manifests into dumps\luas and dumps\manifests
         public bool CollectAfterRun { get; set; } = true;

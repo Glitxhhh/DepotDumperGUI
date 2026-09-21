@@ -1,0 +1,36 @@
+<Window x:Class="DepotDumper.GUI.ThemedDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Depot Dumper GUI"
+        Width="480" MinWidth="380"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="{DynamicResource BgBrush}"
+        Foreground="{DynamicResource TextBrush}"
+        FontFamily="{StaticResource UiFont}" FontSize="13"
+        UseLayoutRounding="True" SnapsToDevicePixels="True">
+    <Grid Margin="26,24,26,22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="IconText" Style="{StaticResource Icon}" FontSize="28" Margin="0,1,16,0" VerticalAlignment="Top"/>
+            <StackPanel Grid.Column="1">
+                <TextBlock x:Name="TitleText" Style="{StaticResource Heading}" FontSize="17" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                <ScrollViewer MaxHeight="340" VerticalScrollBarVisibility="Auto">
+                    <TextBlock x:Name="MessageText" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" LineHeight="20"/>
+                </ScrollViewer>
+            </StackPanel>
+        </Grid>
+
+        <StackPanel x:Name="ButtonRow" Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,24,0,0"/>
+    </Grid>
+</Window>

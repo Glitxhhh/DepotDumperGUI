@@ -58,10 +58,10 @@ namespace DepotDumper
 
         readonly SteamUser.LogOnDetails logonDetails;
 
-        public Steam3Session(SteamUser.LogOnDetails details)
+        public Steam3Session(SteamUser.LogOnDetails details, bool forceAnonymous = false)
         {
             this.logonDetails = details;
-            this.authenticatedUser = details.Username != null || DepotDumper.Config.UseQrCode;
+            this.authenticatedUser = !forceAnonymous && (details.Username != null || DepotDumper.Config.UseQrCode);
 
             var clientConfiguration = SteamConfiguration.Create(config =>
                 config
@@ -145,7 +145,7 @@ namespace DepotDumper
             if ((AppInfo.ContainsKey(appId) && !bForce) || bAborted)
                 return;
 
-            var jobResult = await steamApps.PICSGetAccessTokens(new List<uint> { appId }, Enumerable.Empty<uint>());
+            var jobResult = await Throttle.SteamCallAsync(async () => await steamApps.PICSGetAccessTokens(new List<uint> { appId }, Enumerable.Empty<uint>()));
             var appTokens = jobResult;
 
             if (appTokens.AppTokensDenied.Contains(appId))
@@ -173,7 +173,7 @@ namespace DepotDumper
             }
 
 
-            var picsInfo = await steamApps.PICSGetProductInfo(new List<SteamApps.PICSRequest> { request }, Enumerable.Empty<SteamApps.PICSRequest>());
+            var picsInfo = await Throttle.SteamCallAsync(async () => await steamApps.PICSGetProductInfo(new List<SteamApps.PICSRequest> { request }, Enumerable.Empty<SteamApps.PICSRequest>()));
             var appInfoMultiple = picsInfo;
 
             if (appInfoMultiple?.Results == null)
@@ -233,7 +233,7 @@ namespace DepotDumper
                 packageRequests.Add(request);
             }
 
-            var picsInfo = await steamApps.PICSGetProductInfo(Enumerable.Empty<SteamApps.PICSRequest>(), packageRequests);
+            var picsInfo = await Throttle.SteamCallAsync(async () => await steamApps.PICSGetProductInfo(Enumerable.Empty<SteamApps.PICSRequest>(), packageRequests));
             var packageInfoMultiple = picsInfo;
 
             if (packageInfoMultiple?.Results == null)
@@ -271,6 +271,23 @@ namespace DepotDumper
 
 
 
+        /// <summary>
+        /// Steam answers a burst of key requests with a job timeout (TaskCanceledException). That is a load signal, not a lost depot:
+        /// count it (the speed controller eases off) and ask again after a short pause instead of failing the whole depot.
+        /// </summary>
+        private async Task<SteamApps.DepotKeyCallback> GetDepotKeyWithRetryAsync(uint depotId, uint appid)
+        {
+            var delaySeconds = new[] { 1, 3, 6 };
+            for (var attempt = 0; ; attempt++)
+            {
+                try { return await Throttle.SteamCallAsync(async () => await steamApps.GetDepotDecryptionKey(depotId, appid)); }
+                catch (TaskCanceledException) when (!bAborted && attempt < delaySeconds.Length)
+                {
+                    Logger.Warning($"Steam did not answer the key request for depot {depotId} in time (attempt {attempt + 1}); trying again.");
+                    await Task.Delay(TimeSpan.FromSeconds(delaySeconds[attempt]));
+                }
+            }
+        }
         public async Task RequestDepotKey(uint depotId, uint appid = 0)
 {
     if (DepotKeys.ContainsKey(depotId) || bAborted)
@@ -278,9 +295,9 @@ namespace DepotDumper
 
     Logger.Info($"Requesting depot key for {depotId} using app context {appid}");
     var keyTimer = System.Diagnostics.Stopwatch.StartNew();
-    var depotKeyResult = await steamApps.GetDepotDecryptionKey(depotId, appid);
+    var depotKeyResult = await GetDepotKeyWithRetryAsync(depotId, appid);
     keyTimer.Stop();
-    Throttle.ReportLatency(keyTimer.Elapsed);   // small, consistent request: a good "is Steam responding normally?" signal
+    // (latency is no longer used to steer: it included our own queueing and retry pauses, which made the controller slow itself down)
 
     if (depotKeyResult == null)
     {
@@ -311,7 +328,7 @@ namespace DepotDumper
             if (bAborted)
                 return 0;
 
-            var requestCode = await steamContent.GetManifestRequestCode(depotId, appId, manifestId, branch);
+            var requestCode = await Throttle.SteamCallAsync(async () => await steamContent.GetManifestRequestCode(depotId, appId, manifestId, branch));
 
             if (requestCode == 0)
             {
@@ -358,7 +375,7 @@ namespace DepotDumper
 
             try
             {
-                var cdnAuth = await steamContent.GetCDNAuthToken(appid, depotid, server.Host);
+                var cdnAuth = await Throttle.SteamCallAsync(async () => await steamContent.GetCDNAuthToken(appid, depotid, server.Host));
 
                 if (cdnAuth == null)
                 {

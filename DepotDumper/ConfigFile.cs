@@ -34,8 +34,9 @@ namespace DepotDumper
         public bool DownloadManifests { get; set; } = true;
         public bool DeleteOldManifests { get; set; } = false;
         public bool DownloadHistoricalManifests { get; set; } = false;
+        [JsonIgnore] public bool ResumeRun { get; set; } = false;   // per run (-resume or the GUI prompt), never saved
         public bool DynamicConcurrency { get; set; } = true;
-        public int MaxParallelDepots { get; set; } = 24;
+        public int MaxParallelDepots { get; set; } = 12;
         public double MaxMemoryGb { get; set; } = 0;
         public bool CollectAfterRun { get; set; } = true;
         public bool CollectPublicOnly { get; set; } = false;
@@ -200,6 +201,8 @@ namespace DepotDumper
             DepotDumper.Config.DownloadManifests = this.DownloadManifests;
             DepotDumper.Config.DeleteOldManifests = this.DeleteOldManifests;
             DepotDumper.Config.DownloadHistoricalManifests = this.DownloadHistoricalManifests;
+            DepotDumper.Config.ResumeRun = this.ResumeRun;
+            DepotDumper.Config.Username = this.Username;
             DepotDumper.Config.DynamicConcurrency = this.DynamicConcurrency;
             DepotDumper.Config.MaxParallelDepots = this.MaxParallelDepots;
             DepotDumper.Config.MaxMemoryGb = this.MaxMemoryGb;
@@ -286,6 +289,10 @@ namespace DepotDumper
             if (Program.HasParameter(args, "-delete-old-manifests"))
             {
                 DeleteOldManifests = true;
+            }
+            if (Program.HasParameter(args, "-resume"))
+            {
+                ResumeRun = true;
             }
             if (Program.HasParameter(args, "-history"))
             {

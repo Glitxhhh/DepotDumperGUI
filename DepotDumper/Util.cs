@@ -168,7 +168,7 @@ namespace DepotDumper
                 // Check if the directory exists
                 if (!Directory.Exists(appDirectory))
                 {
-                    Logger.Warning($"App directory does not exist: {appDirectory}");
+                    Logger.Debug($"App directory does not exist yet: {appDirectory}");   // normal for an app not dumped before
                     return result;
                 }
                 

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net9.0-windows</TargetFramework>
@@ -6,7 +6,7 @@
     <StartupObject>DepotDumper.Program</StartupObject>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <RollForward>LatestMajor</RollForward>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Product>Depot Dumper GUI</Product>
     <AssemblyTitle>Depot Dumper GUI</AssemblyTitle>
     <Description>Depot Dumper GUI - dump Steam depot keys, luas and manifests</Description>

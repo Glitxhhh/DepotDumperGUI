@@ -11,6 +11,7 @@ public partial class AuthCodeWindow : Window
     public AuthCodeWindow(AuthPromptKind kind, string? email, bool previousCodeWasIncorrect)
     {
         InitializeComponent();
+        WindowTheme.Follow(this);
 
         MessageText.Text = kind == AuthPromptKind.EmailCode
             ? $"Steam emailed a code to {email}. Enter it below."

@@ -1,6 +1,8 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Color x:Key="BgColor">#FF0E1014</Color>
+    <Color x:Key="AccentSoftColor">#FF222B4D</Color>
+    <Color x:Key="TextColor">#FFE8EAF0</Color>
     <SolidColorBrush x:Key="BgBrush" Color="#FF0E1014"/>
     <SolidColorBrush x:Key="SidebarBrush" Color="#FF12151B"/>
     <SolidColorBrush x:Key="SurfaceBrush" Color="#FF171A21"/>

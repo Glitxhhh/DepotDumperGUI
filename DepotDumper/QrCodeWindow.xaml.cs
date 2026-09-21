@@ -10,6 +10,7 @@ public partial class QrCodeWindow : Window
     public QrCodeWindow(string challengeUrl, byte[][] qrMatrix)
     {
         InitializeComponent();
+        WindowTheme.Follow(this);
         GenerateQrImage(qrMatrix);
 
         // Subscribe to login success event to auto-close
