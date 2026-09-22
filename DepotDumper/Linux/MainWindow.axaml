@@ -1,0 +1,412 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="DepotDumper.Linux.MainWindow"
+        Title="Depot Dumper"
+        Width="1000" Height="720" MinWidth="760" MinHeight="540"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource BgBrush}"
+        RequestedThemeVariant="Dark">
+    <Grid ColumnDefinitions="230,*">
+
+        <!-- ============ SIDEBAR ============ -->
+        <Border Grid.Column="0" Background="{DynamicResource SidebarBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
+            <Grid Margin="16,22,16,18" RowDefinitions="Auto,*,Auto">
+
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="6,0,0,26">
+                    <Border Width="38" Height="38" CornerRadius="12">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                <GradientStop Color="#FF7C9BFF" Offset="0"/>
+                                <GradientStop Color="#FF9B6BFF" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Border.Background>
+                        <TextBlock Text="⬇" FontSize="17" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="Depot Dumper" FontSize="14.5" FontWeight="Bold" Foreground="{DynamicResource TextBrush}"/>
+                        <TextBlock Text="Linux" Classes="caption"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel Grid.Row="1">
+                    <RadioButton x:Name="NavDashboard" GroupName="nav" Theme="{StaticResource NavButton}" Tag="⊞" Content="Dashboard" IsChecked="True" Click="Nav_Click"/>
+                    <RadioButton x:Name="NavLibrary" GroupName="nav" Theme="{StaticResource NavButton}" Tag="▤" Content="Manifest library" Click="Nav_Click"/>
+                    <RadioButton x:Name="NavLua" GroupName="nav" Theme="{StaticResource NavButton}" Tag="▥" Content="Lua library" Click="Nav_Click"/>
+                    <RadioButton x:Name="NavIndex" GroupName="nav" Theme="{StaticResource NavButton}" Tag="⌕" Content="Game index" Click="Nav_Click"/>
+                    <RadioButton x:Name="NavSettings" GroupName="nav" Theme="{StaticResource NavButton}" Tag="⚙" Content="Settings" Click="Nav_Click"/>
+                    <RadioButton x:Name="NavLogs" GroupName="nav" Theme="{StaticResource NavButton}" Tag="≡" Content="Logs" Click="Nav_Click"/>
+                </StackPanel>
+
+                <TextBlock Grid.Row="2" Text="This is a small first cut of the Linux app; the pages above beyond Dashboard are still being ported from Windows."
+                           Classes="caption" TextWrapping="Wrap" FontSize="11"/>
+            </Grid>
+        </Border>
+
+        <!-- ============ CONTENT ============ -->
+        <Grid Grid.Column="1" Margin="30,24,30,22" RowDefinitions="Auto,*">
+
+            <!-- Header: page title on the left, run status/controls on the right (same on every page, like Windows) -->
+            <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,20">
+                <StackPanel Grid.Column="0">
+                    <TextBlock x:Name="PageTitle" Text="Dashboard" Classes="heading"/>
+                    <TextBlock x:Name="PageSubtitle" Text="Dump your Steam library's depot keys, luas and manifests." Classes="caption" Margin="0,3,0,0"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="10">
+                    <Border CornerRadius="16" Padding="13,7" Background="{DynamicResource Surface2Brush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Ellipse x:Name="StatusDot" Width="8" Height="8" Fill="{DynamicResource FaintBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="StatusText" Text="Idle" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource TextBrush}"/>
+                        </StackPanel>
+                    </Border>
+                    <Button x:Name="StartButton" Theme="{StaticResource PrimaryButton}" Content="▶  Start dump" Padding="20,10" Click="StartButton_Click"/>
+                    <Button x:Name="StopButton" Theme="{StaticResource DangerButton}" Content="■  Stop" Padding="20,10" Click="StopButton_Click" IsVisible="False"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- ===== Dashboard (the only page with real content so far) ===== -->
+            <Grid x:Name="PageDashboard" Grid.Row="1" RowDefinitions="Auto,Auto,*" IsVisible="True">
+                <Border Grid.Row="0" Classes="card" Margin="0,0,0,14">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="Steam account" Classes="sectionTitle" Margin="0,0,0,4"/>
+                        <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto">
+                            <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,10,10">
+                                <TextBlock Text="USERNAME" Classes="fieldLabel"/>
+                                <TextBox x:Name="UsernameBox"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="0" Grid.Column="1" Margin="10,0,0,10">
+                                <TextBlock Text="PASSWORD" Classes="fieldLabel"/>
+                                <TextBox x:Name="PasswordBox" PasswordChar="•"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal" Spacing="10">
+                                <ToggleSwitch x:Name="RememberBox" OnContent="" OffContent="" IsChecked="True"/>
+                                <TextBlock Text="Stay signed in" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}" FontSize="13"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="10">
+                                <ToggleSwitch x:Name="QrBox" OnContent="" OffContent=""/>
+                                <TextBlock Text="Sign in with a QR code instead" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}" FontSize="13"/>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Row="1" Classes="card" Margin="0,0,0,14">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="Progress" Classes="sectionTitle"/>
+                        <ProgressBar x:Name="RunProgress" Minimum="0" Maximum="100" IsIndeterminate="False"/>
+                        <TextBlock x:Name="ProgressText" Text="Nothing running. Enter your Steam account above, then press Start dump." Classes="caption"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Row="2" Classes="card" Padding="0">
+                    <Grid RowDefinitions="Auto,*">
+                        <TextBlock Grid.Row="0" Text="Activity" Classes="sectionTitle" Margin="20,16,20,10"/>
+                        <Border Grid.Row="1" Margin="20,0,20,20" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="9">
+                            <ScrollViewer x:Name="LogScroll">
+                                <TextBox x:Name="LogBox" Classes="plain" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+                                         FontFamily="{DynamicResource MonoFont}" FontSize="11.5" BorderThickness="0" Background="Transparent" Padding="12"/>
+                            </ScrollViewer>
+                        </Border>
+                        <TextBlock x:Name="QrText" Grid.Row="1" FontFamily="{DynamicResource MonoFont}" FontSize="6.5" LineHeight="6.5"
+                                   Foreground="{DynamicResource TextBrush}" IsVisible="False" Margin="20"/>
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <!-- ===== Not ported yet: one plain placeholder card per remaining Windows page ===== -->
+            <Grid x:Name="PageLibrary" Grid.Row="1" RowDefinitions="Auto,Auto,*" IsVisible="False">
+                <Grid Grid.Row="0" ColumnDefinitions="*,*,*,*">
+                    <Border Grid.Column="0" Classes="card" Margin="0,0,12,0" Padding="18,14">
+                        <StackPanel><TextBlock Text="KNOWN" Classes="fieldLabel"/><TextBlock x:Name="LibKnown" Text="0" Classes="statValue" FontSize="24"/></StackPanel>
+                    </Border>
+                    <Border Grid.Column="1" Classes="card" Margin="0,0,12,0" Padding="18,14">
+                        <StackPanel><TextBlock Text="DOWNLOADED" Classes="fieldLabel"/><TextBlock x:Name="LibDownloaded" Text="0" Classes="statValue" FontSize="24" Foreground="{DynamicResource SuccessBrush}"/></StackPanel>
+                    </Border>
+                    <Border Grid.Column="2" Classes="card" Margin="0,0,12,0" Padding="18,14">
+                        <StackPanel><TextBlock Text="PENDING" Classes="fieldLabel"/><TextBlock x:Name="LibPending" Text="0" Classes="statValue" FontSize="24" Foreground="{DynamicResource WarnBrush}"/></StackPanel>
+                    </Border>
+                    <Border Grid.Column="3" Classes="card" Padding="18,14">
+                        <StackPanel><TextBlock Text="UNAVAILABLE" Classes="fieldLabel"/><TextBlock x:Name="LibUnavailable" Text="0" Classes="statValue" FontSize="24" Foreground="{DynamicResource DangerBrush}"/></StackPanel>
+                    </Border>
+                </Grid>
+
+                <Border Grid.Row="1" Classes="card" Margin="0,14,0,14" Padding="20,16">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Margin="0,0,20,0">
+                            <TextBlock Classes="caption" TextWrapping="Wrap" Margin="0,0,0,10"
+                                       Text="Every manifest ID the dumper sees is remembered here, so older versions stay downloadable for downgrading. Steam has no list of past versions, so add IDs by scanning your own files, importing a list, or just letting runs accumulate them."/>
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <ToggleSwitch x:Name="HistoryToggle" OnContent="" OffContent="" Click="HistoryToggle_Click"/>
+                                <TextBlock Text="Download known historical manifests during dump runs" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}" FontSize="13"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
+                            <Button x:Name="ScanLocalButton" Content="Scan local files" Click="ScanLocal_Click"/>
+                            <Button x:Name="ImportIdsButton" Content="Import ID list…" Click="ImportIds_Click"/>
+                            <Button x:Name="RetryUnavailableButton" Content="Retry unavailable" Click="RetryUnavailable_Click"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="2" Classes="card" Padding="0">
+                    <Grid RowDefinitions="Auto,Auto,*">
+                        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="20,16,20,10">
+                            <TextBox Grid.Column="0" x:Name="LibrarySearch" Watermark="Search app, depot or manifest ID" TextChanged="LibrarySearch_Changed"/>
+                            <TextBlock Grid.Column="1" x:Name="LibraryCount" Classes="caption" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                        </Grid>
+
+                        <Border Grid.Row="1" Margin="20,0,20,12" Padding="14,10" CornerRadius="10" Background="{DynamicResource Surface2Brush}">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                    <TextBlock Text="Downgrade helper" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}"/>
+                                    <TextBlock x:Name="DowngradeHint" Classes="caption" Margin="0,2,12,0"
+                                               Text="Select one or more downloaded manifests below (Ctrl / Shift to pick several), then copy the commands to install that version."/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
+                                    <Button Content="Steam console" Padding="12,7" Click="CopySteamConsole_Click"/>
+                                    <Button Content="DepotDownloader" Padding="12,7" Click="CopyDepotDownloader_Click"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <DataGrid Grid.Row="2" x:Name="LibraryGrid" AutoGenerateColumns="False" IsReadOnly="True" GridLinesVisibility="Horizontal"
+                                  HeadersVisibility="Column" SelectionMode="Extended" SelectionChanged="LibraryGrid_SelectionChanged" Margin="20,0,20,20">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="STATUS" Binding="{Binding Status}" Width="110"/>
+                                <DataGridTextColumn Header="APP" Binding="{Binding App}" Width="80"/>
+                                <DataGridTextColumn Header="DEPOT" Binding="{Binding Depot}" Width="90"/>
+                                <DataGridTextColumn Header="MANIFEST ID" Binding="{Binding Manifest}" Width="180"/>
+                                <DataGridTextColumn Header="BRANCHES" Binding="{Binding Branches}" Width="*"/>
+                                <DataGridTextColumn Header="CREATED" Binding="{Binding CreatedText}" Width="130"/>
+                                <DataGridTextColumn Header="SOURCE" Binding="{Binding Source}" Width="90"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+                </Border>
+            </Grid>
+            <Grid x:Name="PageLua" Grid.Row="1" RowDefinitions="Auto,*" IsVisible="False">
+                <Border Grid.Row="0" Classes="card" Margin="0,0,0,14">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Classes="caption" TextWrapping="Wrap" Margin="0,0,20,0" VerticalAlignment="Center"
+                                   Text="Every lua in your pooled luas folder, read from disk. Select one to see what's inside, copy it, or save copies elsewhere. Nothing here changes your files."/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <Button Content="Refresh" Click="LuaRefresh_Click"/>
+                            <Button Content="Open luas folder" Click="OpenLuaPool_Click"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="1" Classes="card" Padding="0">
+                    <Grid RowDefinitions="Auto,*">
+                        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="20,16,20,10">
+                            <TextBox Grid.Column="0" x:Name="LuaSearch" Watermark="Search app ID, name or problem (e.g. &quot;no depot keys&quot;)" TextChanged="LuaSearch_Changed"/>
+                            <TextBlock Grid.Column="1" x:Name="LuaCount" Classes="caption" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                        </Grid>
+                        <Grid Grid.Row="1" RowDefinitions="*,Auto" Margin="0,0,0,0">
+                            <DataGrid Grid.Row="0" x:Name="LuaGrid" AutoGenerateColumns="False" IsReadOnly="True" GridLinesVisibility="Horizontal"
+                                      HeadersVisibility="Column" SelectionMode="Extended" SelectionChanged="LuaGrid_SelectionChanged" Margin="20,0,20,10">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="APP" Binding="{Binding App}" Width="70"/>
+                                    <DataGridTextColumn Header="NAME" Binding="{Binding Name}" Width="*"/>
+                                    <DataGridTextColumn Header="VARIANT" Binding="{Binding Variant}" Width="90"/>
+                                    <DataGridTextColumn Header="KEYS" Binding="{Binding Keys}" Width="55"/>
+                                    <DataGridTextColumn Header="DLC" Binding="{Binding Others}" Width="55"/>
+                                    <DataGridTextColumn Header="MANIFESTS" Binding="{Binding Manifests}" Width="100"/>
+                                    <DataGridTextColumn Header="NEWEST" Binding="{Binding NewestText}" Width="130"/>
+                                    <DataGridTextColumn Header="NOTES" Binding="{Binding Issues}" Width="160"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            <Border Grid.Row="1" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="20,12,20,16">
+                                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,150">
+                                    <TextBlock Grid.Row="0" Grid.Column="0" x:Name="LuaViewerTitle" Text="Select a lua to preview it" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,0,0,8" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
+                                    <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+                                        <Button Content="Copy" Click="LuaCopy_Click"/>
+                                        <Button Content="Save copies…" Click="LuaSave_Click"/>
+                                    </StackPanel>
+                                    <TextBox Grid.Row="1" Grid.ColumnSpan="2" x:Name="LuaViewer" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+                                             FontFamily="{DynamicResource MonoFont}" FontSize="11.5"/>
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </Grid>
+                </Border>
+            </Grid>
+            <Grid x:Name="PageIndex" Grid.Row="1" RowDefinitions="Auto,Auto,*" IsVisible="False">
+                <Border Grid.Row="0" Classes="card" Margin="0,0,0,14">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Margin="0,0,20,0" VerticalAlignment="Center">
+                            <TextBlock Classes="caption" TextWrapping="Wrap"
+                                       Text="A searchable database of everything in your dumps folder: games and their DLC, depots and keys, every manifest with its date, luas and tokens. It is built from your own files (never from Steam) and can be asked anything in SQL."/>
+                            <TextBlock x:Name="IndexStatsText" Margin="0,8,0,0" FontWeight="SemiBold" FontSize="12.5" TextWrapping="Wrap" Foreground="{DynamicResource TextBrush}"/>
+                        </StackPanel>
+                        <Button Grid.Column="1" x:Name="IndexRebuildButton" Content="Rebuild index" VerticalAlignment="Center" Click="IndexRebuild_Click"/>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="1" Classes="card" Margin="0,0,0,14">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="QUESTIONS" Classes="fieldLabel"/>
+                        <WrapPanel x:Name="IndexPresetPanel"/>
+                        <TextBox x:Name="IndexSql" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" MaxHeight="140"
+                                 FontFamily="{DynamicResource MonoFont}" FontSize="12"
+                                 Watermark="SELECT … FROM games, depots, manifests, luas, dlc, tokens  (read-only)"/>
+                        <Grid ColumnDefinitions="Auto,*">
+                            <Button Grid.Column="0" Theme="{StaticResource PrimaryButton}" Content="Run query" Padding="18,8" Click="IndexRun_Click"/>
+                            <TextBlock x:Name="IndexResultText" Grid.Column="1" Classes="caption" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Row="2" Classes="card" Padding="0">
+                    <DataGrid x:Name="IndexGrid" AutoGenerateColumns="False" IsReadOnly="True" GridLinesVisibility="Horizontal"
+                              HeadersVisibility="Column" CanUserResizeColumns="True" CanUserSortColumns="False"/>
+                </Border>
+            </Grid>
+            <ScrollViewer x:Name="PageSettings" Grid.Row="1" IsVisible="False">
+                <Grid ColumnDefinitions="*,14,*" Margin="0,0,4,0">
+                    <StackPanel Grid.Column="0" Spacing="14">
+                        <Border Classes="card">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="What to dump" Classes="sectionTitle" Margin="0,0,0,10"/>
+                                <TextBlock Text="ONLY THESE APP IDS" Classes="fieldLabel"/>
+                                <TextBox x:Name="AppIdsBox" Margin="0,0,0,2"/>
+                                <TextBlock Classes="caption" Margin="0,0,0,10" Text="Comma separated. Leave empty to dump every app you own."/>
+                                <TextBlock Text="SKIP THESE APP IDS" Classes="fieldLabel"/>
+                                <TextBox x:Name="ExcludedBox" Margin="0,0,0,10"/>
+                                <TextBlock Text="BRANCHES" Classes="fieldLabel"/>
+                                <StackPanel Orientation="Horizontal" Spacing="14">
+                                    <RadioButton x:Name="BranchAll" GroupName="branch" Content="All branches"/>
+                                    <RadioButton x:Name="BranchPublic" GroupName="branch" Content="Public only"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Classes="card">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Manifests" Classes="sectionTitle" Margin="0,0,0,10"/>
+                                <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,10">
+                                    <ToggleSwitch x:Name="DownloadManifestsToggle" OnContent="" OffContent=""/>
+                                    <TextBlock Text="Download manifest files" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}" FontSize="13"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <ToggleSwitch x:Name="KeepOldToggle" OnContent="" OffContent=""/>
+                                    <TextBlock Text="Keep older manifests when a newer one downloads" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}" FontSize="13"/>
+                                </StackPanel>
+                                <TextBlock Classes="caption" Margin="50,0,0,0" Text="Existing manifests are checked (structure and SHA-256) and reused instead of re-downloaded."/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2" Spacing="14">
+                        <Border Classes="card">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Collection" Classes="sectionTitle" Margin="0,0,0,4"/>
+                                <TextBlock Classes="caption" Margin="0,0,0,10" Text="Pools every lua and manifest (including ones inside zips) into dumps\luas and dumps\manifests, without duplicates."/>
+                                <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,8">
+                                    <ToggleSwitch x:Name="CollectAfterToggle" OnContent="" OffContent=""/>
+                                    <TextBlock Text="Collect automatically after each run" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}" FontSize="13"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,8">
+                                    <ToggleSwitch x:Name="CollectPublicToggle" OnContent="" OffContent=""/>
+                                    <TextBlock Text="Public branch only" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}" FontSize="13"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,8">
+                                    <ToggleSwitch x:Name="CollectNoBetaToggle" OnContent="" OffContent=""/>
+                                    <TextBlock Text="Skip beta / preview branches" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}" FontSize="13"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,8">
+                                    <ToggleSwitch x:Name="CollectLatestToggle" OnContent="" OffContent=""/>
+                                    <TextBlock Text="Newest lua per game only" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}" FontSize="13"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <ToggleSwitch x:Name="CollectDepotCacheToggle" OnContent="" OffContent=""/>
+                                    <TextBlock Text="Also pool manifests from Steam's depotcache" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}" FontSize="13"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Classes="card">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Performance" Classes="sectionTitle" Margin="0,0,0,10"/>
+                                <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,4">
+                                    <ToggleSwitch x:Name="DynamicToggle" OnContent="" OffContent=""/>
+                                    <TextBlock Text="Dynamic speed (auto-adjust)" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}" FontSize="13"/>
+                                </StackPanel>
+                                <TextBlock Classes="caption" Margin="50,0,0,14"
+                                           Text="Runs several depots at once, speeding up while Steam responds well and your PC has room, and easing off on rate limits, errors or high CPU / RAM. Off = one depot at a time. 'Max parallel depots' below is the ceiling."/>
+                                <Grid ColumnDefinitions="*,12,*">
+                                    <StackPanel Grid.Column="0"><TextBlock Text="MAX PARALLEL DEPOTS" Classes="fieldLabel"/><TextBox x:Name="MaxParallelDepotsBox" Margin="0,0,0,12"/></StackPanel>
+                                    <StackPanel Grid.Column="2"><TextBlock Text="PARALLEL APPS" Classes="fieldLabel"/><TextBox x:Name="MaxConcurrentAppsBox" Margin="0,0,0,12"/></StackPanel>
+                                </Grid>
+                                <Grid ColumnDefinitions="*,12,*,12,*">
+                                    <StackPanel Grid.Column="0"><TextBlock Text="MAX SERVERS" Classes="fieldLabel"/><TextBox x:Name="MaxServersBox"/></StackPanel>
+                                    <StackPanel Grid.Column="2"><TextBlock Text="CELL ID" Classes="fieldLabel"/><TextBox x:Name="CellIdBox"/></StackPanel>
+                                    <StackPanel Grid.Column="4"><TextBlock Text="LOGIN ID" Classes="fieldLabel"/><TextBox x:Name="LoginIdBox"/></StackPanel>
+                                </Grid>
+                                <Grid ColumnDefinitions="*,12,*" Margin="0,12,0,0">
+                                    <StackPanel Grid.Column="0"><TextBlock Text="MANIFESTS PER DEPOT" Classes="fieldLabel"/><TextBox x:Name="MaxDownloadsBox"/></StackPanel>
+                                    <StackPanel Grid.Column="2"><TextBlock Text="MEMORY LIMIT (GB)" Classes="fieldLabel"/><TextBox x:Name="MaxMemoryBox" Watermark="auto"/></StackPanel>
+                                </Grid>
+                                <TextBlock Classes="caption" Margin="0,10,0,0" Text="Memory limit caps this app's own RAM use; leave empty for automatic (it slows down on its own when your PC runs low)."/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Classes="card">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Output" Classes="sectionTitle" Margin="0,0,0,10"/>
+                                <TextBlock Text="DUMP DIRECTORY" Classes="fieldLabel"/>
+                                <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,6">
+                                    <TextBox Grid.Column="0" x:Name="DumpDirBox" TextChanged="DumpDirBox_TextChanged"/>
+                                    <Button Grid.Column="1" Content="Browse…" Margin="8,0,0,0" Click="Browse_Click"/>
+                                </Grid>
+                                <TextBlock x:Name="DumpDirResolved" Classes="caption" Margin="0,0,0,16" TextTrimming="CharacterEllipsis"/>
+
+                                <TextBlock Text="LOG DETAIL" Classes="fieldLabel"/>
+                                <StackPanel Orientation="Horizontal" Spacing="14">
+                                    <RadioButton x:Name="LogLevelDebug" GroupName="loglevel" Content="Debug"/>
+                                    <RadioButton x:Name="LogLevelInfo" GroupName="loglevel" Content="Info"/>
+                                    <RadioButton x:Name="LogLevelWarning" GroupName="loglevel" Content="Warning"/>
+                                    <RadioButton x:Name="LogLevelError" GroupName="loglevel" Content="Error"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+            </ScrollViewer>
+            <Grid x:Name="PageLogs" Grid.Row="1" RowDefinitions="Auto,*" IsVisible="False">
+                <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,14">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <RadioButton x:Name="FilterAll" GroupName="logfilter" Content="All" IsChecked="True" Click="LogFilter_Changed"/>
+                        <RadioButton x:Name="FilterInfo" GroupName="logfilter" Content="Info +" Click="LogFilter_Changed"/>
+                        <RadioButton x:Name="FilterWarn" GroupName="logfilter" Content="Warnings +" Click="LogFilter_Changed"/>
+                        <RadioButton x:Name="FilterError" GroupName="logfilter" Content="Errors" Click="LogFilter_Changed"/>
+                    </StackPanel>
+                    <TextBox Grid.Column="1" x:Name="LogSearch" Margin="16,0,16,0" Watermark="Filter log lines…" TextChanged="LogSearch_Changed"/>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ToggleSwitch x:Name="AutoScrollToggle" IsChecked="True" OnContent="" OffContent=""/>
+                            <TextBlock Text="Auto-scroll" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}" FontSize="13"/>
+                        </StackPanel>
+                        <Button Content="Clear" Click="ClearLog_Click"/>
+                        <Button Content="Open log folder" Click="OpenLogsFolder_Click"/>
+                    </StackPanel>
+                </Grid>
+                <Border Grid.Row="1" Classes="card" Padding="12,10">
+                    <ScrollViewer x:Name="LogScrollFull">
+                        <ItemsControl x:Name="LogList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnDefinitions="66,74,*" Margin="0,2">
+                                        <TextBlock Grid.Column="0" Text="{Binding Time}" Foreground="{DynamicResource FaintBrush}" FontFamily="{DynamicResource MonoFont}" FontSize="12"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Level}" FontFamily="{DynamicResource MonoFont}" FontSize="12" FontWeight="Bold"
+                                                   Foreground="{Binding Level, Converter={StaticResource LogLevelBrushConverter}}"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Message}" TextWrapping="Wrap" FontFamily="{DynamicResource MonoFont}" FontSize="12" Foreground="{DynamicResource TextBrush}"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Border>
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

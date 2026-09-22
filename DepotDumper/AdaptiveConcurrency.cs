@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -410,14 +411,45 @@ namespace DepotDumper
                 lastCpu = cpu; lastSample = now;
             }
 
-            var mem = new MEMORYSTATUSEX { dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>() };
-            if (GlobalMemoryStatusEx(ref mem))
+            if (OperatingSystem.IsWindows())
             {
-                memoryPercent = (int)mem.dwMemoryLoad;
-                freeMemoryMb = (int)Math.Min(int.MaxValue, mem.ullAvailPhys / (1024 * 1024));
-                totalMemoryMb = (int)Math.Min(int.MaxValue, mem.ullTotalPhys / (1024 * 1024));
+                var mem = new MEMORYSTATUSEX { dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>() };
+                if (GlobalMemoryStatusEx(ref mem))
+                {
+                    memoryPercent = (int)mem.dwMemoryLoad;
+                    freeMemoryMb = (int)Math.Min(int.MaxValue, mem.ullAvailPhys / (1024 * 1024));
+                    totalMemoryMb = (int)Math.Min(int.MaxValue, mem.ullTotalPhys / (1024 * 1024));
+                }
+            }
+            else if (TryReadProcMeminfo(out var totalKb, out var availKb) && totalKb > 0)
+            {
+                // Linux: MemAvailable already counts reclaimable cache as available, like Windows' "available"
+                totalMemoryMb = (int)Math.Min(int.MaxValue, totalKb / 1024);
+                freeMemoryMb = (int)Math.Min(int.MaxValue, availKb / 1024);
+                memoryPercent = (int)Math.Clamp(100 - availKb * 100 / totalKb, 0, 100);
             }
             try { using var self = Process.GetCurrentProcess(); processMemoryMb = (int)(self.PrivateMemorySize64 / (1024 * 1024)); } catch { }
+        }
+
+        private static bool TryReadProcMeminfo(out long totalKb, out long availKb)
+        {
+            totalKb = availKb = 0;
+            try
+            {
+                foreach (var line in System.IO.File.ReadLines("/proc/meminfo"))
+                {
+                    if (line.StartsWith("MemTotal:")) totalKb = ParseKb(line);
+                    else if (line.StartsWith("MemAvailable:")) { availKb = ParseKb(line); break; }
+                }
+                return totalKb > 0 && availKb > 0;
+            }
+            catch { return false; }
+
+            static long ParseKb(string line)
+            {
+                var digits = new string(line.Where(char.IsDigit).ToArray());
+                return long.TryParse(digits, out var v) ? v : 0;
+            }
         }
 
         [StructLayout(LayoutKind.Sequential)]

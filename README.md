@@ -4,7 +4,7 @@
 
 **Dump the depot keys, luas and manifests for your whole Steam library, from a clean dark-mode desktop app.**
 
-`Windows` · `.NET 9` · `Steam Guard codes, QR or token sign-in` · `keeps every manifest version`
+`Windows` · `Linux (new)` · `.NET 9` · `Steam Guard codes, QR or token sign-in` · `keeps every manifest version`
 
 </div>
 
@@ -74,8 +74,10 @@ It is a GUI fork of the [Morrenus Edition of DepotDumper](https://github.com/Mor
 
 ## Getting started
 
-1. Download the latest release from the [Releases](../../releases) page and extract it anywhere. It is **one self-contained `DepotDumper.exe`** — no installer and no .NET install needed.
-2. Run `DepotDumper.exe` (Windows 10 or 11, 64-bit). On first launch it creates its own settings; see [Where files live](#where-files-live).
+1. Download the latest release from the [Releases](../../releases) page and extract it anywhere.
+   - **Windows**: it is **one self-contained `DepotDumper.exe`** — no installer and no .NET install needed.
+   - **Linux**: `DepotDumperGUI-linux-x64-vX.Y.Z.tar.gz` — extract it and run `./depotdumper`. See [Linux](#linux) below; it's a smaller first cut of the GUI than Windows.
+2. Run it (Windows 10/11 64-bit, or a 64-bit Linux desktop). On first launch it creates its own settings; see [Where files live](#where-files-live).
 3. Open **Settings**, enter your Steam username and password (or switch on QR sign-in).
 4. Press **Start dump**. If Steam asks for a Steam Guard code, a dialog appears — enter it and the run continues.
 
@@ -94,6 +96,25 @@ It is a GUI fork of the [Morrenus Edition of DepotDumper](https://github.com/Mor
 | **Lua library** | Every lua in your pooled `luas` folder: app, name, number of depot keys and DLC, how many of its manifests you have downloaded, and notes for problems (no keys, keys that differ from the `.key` file, missing manifests). Search, preview, copy the text, or save copies to another folder. Read-only: it never changes your files. |
 | **Settings** | Account, what to dump (app IDs, skip list, public-only), manifest and collection options, performance, output folder, log detail, import/export of settings. |
 | **Logs** | The live log with level filters and search. Full logs are also written to `dumps\logs`. |
+
+## Linux
+
+A native Avalonia GUI, alongside the same command line, both built from the same project as Windows (`net9.0` instead of `net9.0-windows`), tested on a Steam Deck. It mirrors the Windows app's look and the core workflow, but it's a smaller first cut so far:
+
+| Page | Status |
+|---|---|
+| **Dashboard** | Full: sign in, start/stop/resume a dump, live progress and log. |
+| **Manifest library** | Stats, search, scan/import/retry, and the downgrade helper's Steam console / DepotDownloader copy buttons. No app/DLC grouping yet (flat list). |
+| **Lua library** | Browse, search, preview, copy, save copies. No app grouping yet (flat list). |
+| **Game index** | The same SQL-over-your-own-dumps page as `-index-query` below. |
+| **Settings** | What to dump, manifests, collection, performance, dump directory. Portable mode, Move dumps and Import/Export settings aren't ported yet. |
+| **Logs** | Filter by level, search, colour-coded. |
+
+Not yet ported at all: the downgrade helper's **Download version…** / **Verify folder…** / **Save .bat**, and Send manifests to Steam. Use the command line for those in the meantime.
+
+## Game index
+
+A local SQLite index of everything in your dumps folder — games, DLC, depots and keys, every manifest with its date, and the pooled luas — built from your own files only, never from Steam. Ask it anything in SQL, or use one of the built-in questions (games with the most versions, depots without a key, DLC and their depots, manifests Steam refused, luas with no keys, ...). On the command line: `-index-build` (rebuild it), `-index-query "<SELECT>"` or `-index-query preset:<n>`, `-index-presets` (list the built-in questions). On Linux it also has its own **Game index** page in the GUI.
 
 ## Collecting luas and manifests
 
@@ -171,6 +192,9 @@ DepotDumper -username <user> -password <pass> [options]
 | `-collect-only` | just collect; no Steam login |
 | `-scan-local` | seed the manifest library from local files; no login |
 | `-import-ids <file>` | import manifest IDs from a file; no login |
+| `-index-build` | rebuild the [game index](#game-index); no login |
+| `-index-query "<SELECT>"` / `-index-query preset:<n>` | query the game index; no login |
+| `-index-presets` | list the game index's built-in questions; no login |
 | `-no-dynamic` / `-dynamic` | turn dynamic speed off (one depot at a time) or on |
 | `-max-parallel-depots <#>` `-memory-limit <GB>` | dynamic speed ceiling and optional memory cap |
 | `-max-downloads <#>` `-max-servers <#>` `-max-concurrent-apps <#>` `-cellid <#>` `-loginid <#>` | performance |
@@ -240,7 +264,14 @@ Requires the [.NET 9 SDK](https://dotnet.microsoft.com/download).
 dotnet build DepotDumper/DepotDumper.sln -c Release
 ```
 
-The self-contained single-file build (one `DepotDumper.exe`) is produced by `dotnet publish DepotDumper/DepotDumper.csproj -c Release`.
+The project targets both `net9.0-windows` (WPF) and `net9.0` (Avalonia, for Linux) from the same `DepotDumper.csproj`; a plain build without `-f` builds both. To publish one platform at a time:
+
+```bash
+dotnet publish DepotDumper/DepotDumper.csproj -c Release -f net9.0-windows
+dotnet publish DepotDumper/DepotDumper.csproj -c Release -f net9.0 -r linux-x64 -p:SelfContained=true -p:PublishSingleFile=true
+```
+
+The Windows build is self-contained and single-file (one `DepotDumper.exe`) by default. The Linux build needs `-r`/`-p:SelfContained`/`-p:PublishSingleFile` explicitly, and ships a few native libraries (`libSkiaSharp.so`, `libHarfBuzzSharp.so`, `libe_sqlite3.so`) as loose files next to the binary — normal for Avalonia, even with `PublishSingleFile`.
 
 ## Releases and versions
 
@@ -252,7 +283,7 @@ Releases are built by GitHub Actions; there is nothing to upload by hand. Versio
 | **patch** | manually: Actions tab → *Manual release* → **patch** (1.4.0 → 1.4.1) |
 | **major** | manually: Actions tab → *Manual release* → **major** (1.4.1 → 2.0.0) |
 
-The version is stamped into the build, and the release attaches `DepotDumperGUI-vX.Y.Z.zip` containing the exe.
+The version is stamped into the build, and the release attaches `DepotDumperGUI-vX.Y.Z.zip` (Windows exe) and `DepotDumperGUI-linux-x64-vX.Y.Z.tar.gz` (Linux).
 
 To push a commit **without** releasing (so you can cut a patch or major build yourself), put `[skip ci]` in the commit message.
 

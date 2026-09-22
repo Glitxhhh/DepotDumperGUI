@@ -10,7 +10,12 @@ using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+#if WPF_GUI
 using System.Windows;
+#elif AVALONIA_GUI
+using Avalonia;                                 // StartWithClassicDesktopLifetime
+using Avalonia.Controls.ApplicationLifetimes;
+#endif
 using SteamKit2;
 using SteamKit2.CDN;
 
@@ -21,7 +26,9 @@ namespace DepotDumper
         // Developer hooks. They are implemented only in the git-ignored DevTools.Local.cs of a local "-p:DevTools=true" build;
         // in every other build (including all GitHub releases) they compile to nothing.
         static partial void DevForceGui(string[] args, ref bool forceGui);
+#if WPF_GUI
         static partial void DevConfigureWindow(GUI.MainWindow window, string[] args);
+#endif
         static partial void DevSteamTool(string[] args, ref Func<Task> tool);
 
         [STAThread]
@@ -33,8 +40,8 @@ namespace DepotDumper
             bool isGuiMode = devForceGui || HasParameter(args, "-gui") || HasParameter(args, "--gui");
             bool isCliMode = HasParameter(args, "-cli") || HasParameter(args, "--cli") || (args.Length > 0 && !isGuiMode);
 
-            // Attach console for CLI mode (WinExe hides it by default)
-            if (isCliMode)
+            // Attach console for CLI mode (the Windows GUI build hides it by default; other platforms already have one)
+            if (isCliMode && OperatingSystem.IsWindows())
             {
                 AttachConsole();
             }
@@ -45,6 +52,7 @@ namespace DepotDumper
                 isGuiMode = true;
             }
 
+#if WPF_GUI
             if (isGuiMode && !isCliMode)
             {
                 // Launch GUI
@@ -64,6 +72,22 @@ namespace DepotDumper
                 }
             }
             else
+#elif AVALONIA_GUI
+            if (isGuiMode && !isCliMode)
+            {
+                // Launch GUI (small first cut: sign in, start/stop a dump, live progress and log - see Linux/MainWindow.axaml.cs)
+                try
+                {
+                    return Linux.App.BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"GUI Error: {ex}");
+                    return 1;
+                }
+            }
+            else
+#endif
             {
                 // Launch CLI
                 return MainAsync(args).GetAwaiter().GetResult();
@@ -213,7 +237,8 @@ namespace DepotDumper
                 Logger.Info("Debug logging enabled.");
             }
             // Offline tools: no Steam login needed
-            if (HasParameter(args, "-collect-only") || HasParameter(args, "-scan-local") || HasParameter(args, "-import-ids") || HasParameter(args, "-export-tokens"))
+            if (HasParameter(args, "-collect-only") || HasParameter(args, "-scan-local") || HasParameter(args, "-import-ids") || HasParameter(args, "-export-tokens")
+                || HasParameter(args, "-index-build") || HasParameter(args, "-index-query") || HasParameter(args, "-index-presets"))
             {
                 return RunOfflineTools(args, dumpPath);
             }
@@ -471,6 +496,7 @@ namespace DepotDumper
         {
             try
             {
+#if WPF_GUI
                 if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                 {
                     using (var player = new SoundPlayer())
@@ -496,6 +522,7 @@ namespace DepotDumper
                         }
                     }
                 }
+#endif
             }
             catch (Exception ex) { Logger.Warning($"Failed to play completion sound: {ex.Message}"); }
         }
@@ -617,6 +644,26 @@ namespace DepotDumper
                 if (HasParameter(args, "-collect-only"))
                 {
                     Console.WriteLine(Collector.Run(BuildCollectOptions(dumpPath), Console.WriteLine).ToString());
+                }
+                if (HasParameter(args, "-index-build") || HasParameter(args, "-index-query") || HasParameter(args, "-index-presets"))
+                {
+                    if (HasParameter(args, "-index-presets"))
+                    {
+                        for (var i = 0; i < GameIndex.Presets.Length; i++) Console.WriteLine($"{i + 1}. {GameIndex.Presets[i].Name}: {GameIndex.Presets[i].Description}");
+                        Console.WriteLine("Run one with -index-query preset:<number>, or give any SELECT.");
+                    }
+                    if (HasParameter(args, "-index-build") || (HasParameter(args, "-index-query") && !GameIndex.Exists(dumpPath)))
+                        GameIndex.Rebuild(dumpPath, Console.WriteLine);
+                    var sql = GetParameter<string>(args, "-index-query");
+                    if (!string.IsNullOrWhiteSpace(sql))
+                    {
+                        if (sql.StartsWith("preset:", StringComparison.OrdinalIgnoreCase) && int.TryParse(sql.AsSpan(7), out var number) && number >= 1 && number <= GameIndex.Presets.Length)
+                            sql = GameIndex.Presets[number - 1].Sql;
+                        var result = GameIndex.Query(dumpPath, sql, 200);
+                        Console.WriteLine(string.Join("\t", result.Columns));
+                        foreach (var row in result.Rows) Console.WriteLine(string.Join("\t", row.Select(v => v is DBNull ? "" : Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture))));
+                        Console.WriteLine($"{result.Rows.Count} row(s)" + (result.Truncated ? " (first 200 shown)" : ""));
+                    }
                 }
                 var tokensOut = GetParameter<string>(args, "-export-tokens");
                 if (tokensOut != null)

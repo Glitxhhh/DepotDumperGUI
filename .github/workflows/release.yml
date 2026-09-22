@@ -28,6 +28,9 @@ jobs:
   build-and-release:
     runs-on: windows-latest
     timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
 
     steps:
     - name: Checkout repository
@@ -78,9 +81,10 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore "DepotDumper/DepotDumper.csproj"
 
-    # Self-contained single-file build (settings live in the csproj); the version is stamped in here
+    # Self-contained single-file build (settings live in the csproj); the version is stamped in here.
+    # -f is required now that the project targets both net9.0-windows and net9.0 (Linux).
     - name: Publish
-      run: dotnet publish "DepotDumper/DepotDumper.csproj" --configuration Release --no-restore --output publish -p:Version=${{ steps.version.outputs.version }} -p:DevTools=false
+      run: dotnet publish "DepotDumper/DepotDumper.csproj" -f net9.0-windows --configuration Release --no-restore --output publish -p:Version=${{ steps.version.outputs.version }} -p:DevTools=false
 
     - name: Package
       shell: pwsh
@@ -98,3 +102,32 @@ jobs:
         draft: false
         prerelease: false
         files: DepotDumperGUI-${{ steps.version.outputs.tag }}.zip
+
+  # The Linux/macOS build (Avalonia GUI + the same CLI, one small first cut): built on Linux so the binary keeps its
+  # executable bit, attached to the same release. Avalonia's native libs ship as loose files next to the binary (normal
+  # for Avalonia, even with PublishSingleFile), so the whole publish folder is packaged, not just the executable.
+  linux-build:
+    needs: build-and-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup .NET 9.0
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+
+    - name: Publish (linux-x64, self-contained single file)
+      run: dotnet publish DepotDumper/DepotDumper.csproj -f net9.0 --configuration Release -r linux-x64 -p:SelfContained=true -p:PublishSingleFile=true -p:Version=${{ needs.build-and-release.outputs.version }} -p:DevTools=false --output linux-out
+
+    - name: Package
+      run: |
+        chmod +x linux-out/depotdumper
+        tar -czf "DepotDumperGUI-linux-x64-${{ needs.build-and-release.outputs.tag }}.tar.gz" -C linux-out .
+
+    - name: Attach to the release
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: gh release upload "${{ needs.build-and-release.outputs.tag }}" "DepotDumperGUI-linux-x64-${{ needs.build-and-release.outputs.tag }}.tar.gz" --clobber --repo "${{ github.repository }}"

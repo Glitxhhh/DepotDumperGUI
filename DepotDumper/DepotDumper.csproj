@@ -1,30 +1,51 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    One project, two platforms:
+      net9.0-windows - the WPF GUI + command line (unchanged, what has always shipped)
+      net9.0         - Linux/macOS: the Avalonia GUI (Linux/*.axaml, a small first cut) + the same command line
+    Both TFMs compile the same underlying .cs files (dumping, Steam session, config, the game index, ...); only the
+    window layer differs. The Windows publish keeps its existing self-contained single-file settings below; the Linux
+    one is supplied at publish time instead, e.g.:
+      dotnet publish DepotDumper.csproj -c Release -f net9.0-windows
+      dotnet publish DepotDumper.csproj -c Release -f net9.0 -r linux-x64 -p:SelfContained=true -p:PublishSingleFile=true
+  -->
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net9.0-windows</TargetFramework>
-    <UseWPF>true</UseWPF>
+    <TargetFrameworks>net9.0-windows;net9.0</TargetFrameworks>
+    <!-- Lets a non-Windows build host (e.g. the Linux CI runner publishing the net9.0 build) restore/evaluate the
+         net9.0-windows TFM too, without actually being able to build it. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <OutputType Condition="'$(TargetFramework)'=='net9.0-windows'">WinExe</OutputType>
+    <OutputType Condition="'$(TargetFramework)'!='net9.0-windows'">Exe</OutputType>
+    <UseWPF Condition="'$(TargetFramework)'=='net9.0-windows'">true</UseWPF>
+    <AssemblyName Condition="'$(TargetFramework)'=='net9.0-windows'">DepotDumper</AssemblyName>
+    <AssemblyName Condition="'$(TargetFramework)'!='net9.0-windows'">depotdumper</AssemblyName>
+    <RootNamespace>DepotDumper</RootNamespace>
     <StartupObject>DepotDumper.Program</StartupObject>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <RollForward>LatestMajor</RollForward>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Product>Depot Dumper GUI</Product>
     <AssemblyTitle>Depot Dumper GUI</AssemblyTitle>
     <Description>Depot Dumper GUI - dump Steam depot keys, luas and manifests</Description>
     <Authors>Glitxh, Morrenus, SteamRE Team</Authors>
     <Copyright>Copyright © SteamRE Team 2025</Copyright>
-    <ApplicationIcon>..\Icon\DepotDownloader.ico</ApplicationIcon>
+    <ApplicationIcon Condition="'$(TargetFramework)'=='net9.0-windows'">..\Icon\DepotDownloader.ico</ApplicationIcon>
     <Deterministic>true</Deterministic>
     <TreatWarningsAsErrors Condition="'$(ContinuousIntegrationBuild)' == 'true'">true</TreatWarningsAsErrors>
-    <InvariantGlobalization>false</InvariantGlobalization>
-    <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>true</SelfContained>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <InvariantGlobalization Condition="'$(TargetFramework)'=='net9.0-windows'">false</InvariantGlobalization>
+    <InvariantGlobalization Condition="'$(TargetFramework)'!='net9.0-windows'">true</InvariantGlobalization>
+    <!-- Windows keeps its existing baked-in self-contained single-file publish (release.yml just runs "dotnet publish", no extra flags) -->
+    <PublishSingleFile Condition="'$(TargetFramework)'=='net9.0-windows'">true</PublishSingleFile>
+    <SelfContained Condition="'$(TargetFramework)'=='net9.0-windows'">true</SelfContained>
+    <RuntimeIdentifier Condition="'$(TargetFramework)'=='net9.0-windows'">win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract Condition="'$(TargetFramework)'=='net9.0-windows'">true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile Condition="'$(TargetFramework)'=='net9.0-windows'">true</EnableCompressionInSingleFile>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
     <!-- allows '?' type annotations everywhere without turning on nullable flow warnings for the older code -->
     <Nullable>annotations</Nullable>
+    <DefineConstants Condition="'$(TargetFramework)'=='net9.0-windows'">$(DefineConstants);WPF_GUI</DefineConstants>
+    <DefineConstants Condition="'$(TargetFramework)'!='net9.0-windows'">$(DefineConstants);AVALONIA_GUI</DefineConstants>
   </PropertyGroup>
 
   <!--
@@ -40,16 +61,45 @@
     <Compile Remove="**\*.Local.cs" />
   </ItemGroup>
 
+  <!-- WPF-only sources (Windows Presentation Foundation cannot build on any other TFM): excluded on net9.0 -->
+  <ItemGroup Condition="'$(TargetFramework)'!='net9.0-windows'">
+    <Compile Remove="App.xaml.cs" />
+    <Compile Remove="MainWindow.xaml.cs" />
+    <Compile Remove="AuthCodeWindow.xaml.cs" />
+    <Compile Remove="QrCodeWindow.xaml.cs" />
+    <Compile Remove="ThemedDialog.xaml.cs" />
+    <Compile Remove="WindowTheme.cs" />
+  </ItemGroup>
+
+  <!-- the Linux/macOS Avalonia GUI (a small first cut): only on the non-Windows TFM. The .axaml files are picked up
+       automatically once the Avalonia package is referenced (its own default-item globbing); only .cs needs excluding here. -->
+  <ItemGroup Condition="'$(TargetFramework)'=='net9.0-windows'">
+    <Compile Remove="Linux\**\*.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="protobuf-net" Version="3.2.45" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
     <PackageReference Include="QRCoder" Version="1.6.0" />
     <PackageReference Include="SteamKit2" Version="3.0.1" />
-    <PackageReference Include="System.Windows.Extensions" Version="8.0.0" />
+    <!-- referenced by Secrets.cs on every platform (it decides at runtime whether to actually call it); DPAPI itself only works on Windows -->
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
     <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.162">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)'=='net9.0-windows'">
+    <PackageReference Include="System.Windows.Extensions" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)'!='net9.0-windows'">
+    <PackageReference Include="Avalonia" Version="11.1.3" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.1.3" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.1.3" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.1.3" />
+    <PackageReference Include="Avalonia.Controls.DataGrid" Version="11.1.3" />
   </ItemGroup>
 
   <ItemGroup>

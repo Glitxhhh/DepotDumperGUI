@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
+using DepotDumper.Parsers;
 
 namespace DepotDumper
 {
@@ -48,8 +49,6 @@ namespace DepotDumper
             }
             catch (IOException) { return ""; }
         }
-        private static readonly Regex AddAppRx = new(@"addappid\(\s*(\d+)\s*(?:,\s*\d+\s*,\s*""(?<key>[0-9a-fA-F]*)""\s*)?\)", RegexOptions.Compiled);
-        private static readonly Regex ManifestRx = new(@"setManifestid\(\s*(\d+)\s*,\s*""(\d+)""", RegexOptions.Compiled);
 
         public static List<LuaEntry> Load(string dumpDir, CancellationToken ct = default)
         {
@@ -72,28 +71,27 @@ namespace DepotDumper
                     if (!uint.TryParse(parts[0], out var appId)) continue;
                     var variant = parts.Length > 1 ? parts[1] : "";
 
-                    var text = File.ReadAllText(file);
-                    var addLines = AddAppRx.Matches(text);
-                    var keyed = addLines.Where(m => m.Groups["key"].Success).ToList();
-                    var others = addLines.Count(m => !m.Groups["key"].Success && m.Groups[1].Value != appId.ToString());
-                    var manifests = ManifestRx.Matches(text)
-                        .Select(m => (Depot: m.Groups[1].Value, Manifest: m.Groups[2].Value)).ToList();
+                    var parsed = LuaParser.Parse(File.ReadAllText(file));
+                    var keyed = parsed.KeyedDepots;
+                    var others = parsed.BareAppIds.Count(id => uint.TryParse(id, out var parsedId) && parsedId != appId);
+                    var manifests = parsed.Pins
+                        .Where(p => uint.TryParse(p.Key, out _) && ulong.TryParse(p.Value, out _))
+                        .Select(p => (Depot: uint.Parse(p.Key), Manifest: ulong.Parse(p.Value)))
+                        .ToList();
                     var downloaded = Directory.Exists(manifestDir)
                         ? manifests.Count(m => File.Exists(System.IO.Path.Combine(manifestDir, $"{m.Depot}_{m.Manifest}.manifest")))
                         : 0;
 
                     DateTime? newest = null;
-                    foreach (var (depot, manifestText) in manifests)
-                        if (uint.TryParse(depot, out var depotId) && ulong.TryParse(manifestText, out var manifestId)
-                            && ManifestLedger.TryGet(depotId, manifestId, out var known) && known.CreatedUtc is { } made && (newest == null || made > newest)) newest = made;
+                    foreach (var (depotId, manifestId) in manifests)
+                        if (ManifestLedger.TryGet(depotId, manifestId, out var known) && known.CreatedUtc is { } made && (newest == null || made > newest)) newest = made;
 
                     if (!names.TryGetValue(appId, out var name)) names[appId] = name = ReadAppName(dumpDir, appId);
                     if (!keyFiles.TryGetValue(appId, out var knownKeys)) keyFiles[appId] = knownKeys = ReadKeyFile(dumpDir, appId);
 
                     var issues = new List<string>();
                     if (keyed.Count == 0) issues.Add("no depot keys");
-                    var differing = keyed.Count(m => uint.TryParse(m.Groups[1].Value, out var d) && knownKeys.TryGetValue(d, out var k)
-                                                     && !string.Equals(k, m.Groups["key"].Value, StringComparison.OrdinalIgnoreCase));
+                    var differing = keyed.Count(kv => uint.TryParse(kv.Key, out var parsedDepot) && knownKeys.TryGetValue(parsedDepot, out var k) && !string.Equals(k, kv.Value, StringComparison.OrdinalIgnoreCase));
                     if (differing > 0) issues.Add($"{differing} key(s) differ from the .key file");
                     if (manifests.Count > downloaded) issues.Add($"{manifests.Count - downloaded} manifest(s) not downloaded");
 

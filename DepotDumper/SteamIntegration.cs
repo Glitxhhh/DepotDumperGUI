@@ -25,6 +25,19 @@ namespace DepotDumper
         /// <summary>The Steam install folder, from the registry (null if Steam isn't installed for this user).</summary>
         public static string FindSteamRoot()
         {
+            if (!OperatingSystem.IsWindows())
+            {
+                var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                foreach (var candidate in new[]
+                {
+                    Path.Combine(home, ".steam", "steam"),
+                    Path.Combine(home, ".local", "share", "Steam"),
+                    Path.Combine(home, ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam"),   // Flatpak
+                    Path.Combine(home, "Library", "Application Support", "Steam"),                                // macOS
+                })
+                    if (Directory.Exists(candidate)) return Path.GetFullPath(candidate);
+                return null;
+            }
             try
             {
                 using var user = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam");
@@ -59,35 +72,42 @@ namespace DepotDumper
         /// Copies dumps\manifests\*.manifest into Steam's depotcache. Existing files are never overwritten:
         /// same size = already there, different size = left alone and reported.
         /// </summary>
-        public static SendResult SendManifestsToDepotCache(string dumpDir, Action<string> log = null, CancellationToken ct = default)
+        public static SendResult SendManifestsToDepotCache(string dumpDir, Action<string> log = null, Action<int, int, string> progress = null, CancellationToken ct = default)
         {
             var dest = DepotCacheDir() ?? throw new InvalidOperationException("Steam's install folder wasn't found in the registry.");
             var pool = Collector.ManifestDir(dumpDir);
             if (!Directory.Exists(pool)) throw new DirectoryNotFoundException("There is no manifests pool yet. Run \"Collect luas & manifests now\" first.");
 
             Directory.CreateDirectory(dest);
+            var files = Directory.GetFiles(pool, "*.manifest");
+            log?.Invoke($"Found {files.Length:N0} pooled manifest(s); sending to {dest}...");
             var res = new SendResult { Destination = dest, SteamRunning = IsSteamRunning() };
-            foreach (var src in Directory.EnumerateFiles(pool, "*.manifest"))
+            foreach (var src in files)
             {
                 ct.ThrowIfCancellationRequested();
                 res.Total++;
-                var target = Path.Combine(dest, Path.GetFileName(src));
+                var name = Path.GetFileName(src);
+                var target = Path.Combine(dest, name);
                 try
                 {
                     if (File.Exists(target))
                     {
                         if (new FileInfo(target).Length == new FileInfo(src).Length) res.AlreadyThere++;
-                        else { res.Conflicts++; log?.Invoke($"Kept existing {Path.GetFileName(target)} (different size)."); }
-                        continue;
+                        else { res.Conflicts++; log?.Invoke($"Kept existing {name} (different size)."); }
                     }
-                    File.Copy(src, target, overwrite: false);
-                    res.Copied++;
+                    else
+                    {
+                        File.Copy(src, target, overwrite: false);
+                        res.Copied++;
+                        log?.Invoke($"Copied {name}");
+                    }
                 }
                 catch (Exception ex)
                 {
                     res.Failed++;
-                    log?.Invoke($"Could not copy {Path.GetFileName(src)}: {ex.Message}");
+                    log?.Invoke($"Could not copy {name}: {ex.Message}");
                 }
+                if (res.Total % 15 == 0 || res.Total == files.Length) progress?.Invoke(res.Total, files.Length, name);
             }
             return res;
         }

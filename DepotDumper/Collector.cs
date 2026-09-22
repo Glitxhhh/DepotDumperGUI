@@ -84,15 +84,8 @@ namespace DepotDumper
 
         public static string FindSteamDepotCache()
         {
-            try
-            {
-                using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam");
-                var steamPath = key?.GetValue("SteamPath") as string;
-                if (string.IsNullOrWhiteSpace(steamPath)) return null;
-                var dir = Path.Combine(steamPath.Replace('/', '\\'), "depotcache");
-                return Directory.Exists(dir) ? dir : null;
-            }
-            catch { return null; }
+            var dir = SteamIntegration.DepotCacheDir();   // registry on Windows, the usual Steam folders elsewhere
+            return dir != null && Directory.Exists(dir) ? dir : null;
         }
 
         private static Pool CreatePool(string dir)

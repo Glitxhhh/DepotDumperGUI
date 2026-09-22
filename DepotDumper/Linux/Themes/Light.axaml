@@ -1,0 +1,24 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- Same palette and keys as Windows' Themes\Light.xaml. -->
+  <Color x:Key="BgColor">#FFF2F4F8</Color>
+  <Color x:Key="AccentSoftColor">#FFE3EAFF</Color>
+  <Color x:Key="TextColor">#FF161A22</Color>
+  <SolidColorBrush x:Key="BgBrush" Color="#FFF2F4F8"/>
+  <SolidColorBrush x:Key="SidebarBrush" Color="#FFFFFFFF"/>
+  <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFFFFFF"/>
+  <SolidColorBrush x:Key="Surface2Brush" Color="#FFF0F2F7"/>
+  <SolidColorBrush x:Key="Surface3Brush" Color="#FFE4E8F0"/>
+  <SolidColorBrush x:Key="BorderBrush" Color="#FFDCE0EA"/>
+  <SolidColorBrush x:Key="TextBrush" Color="#FF161A22"/>
+  <SolidColorBrush x:Key="MutedBrush" Color="#FF5B6478"/>
+  <SolidColorBrush x:Key="FaintBrush" Color="#FF98A0B3"/>
+  <SolidColorBrush x:Key="AccentBrush" Color="#FF3F6BF5"/>
+  <SolidColorBrush x:Key="AccentHoverBrush" Color="#FF5A82FF"/>
+  <SolidColorBrush x:Key="AccentSoftBrush" Color="#FFE3EAFF"/>
+  <SolidColorBrush x:Key="OnAccentBrush" Color="#FFFFFFFF"/>
+  <SolidColorBrush x:Key="SuccessBrush" Color="#FF1FA463"/>
+  <SolidColorBrush x:Key="WarnBrush" Color="#FFC98A0B"/>
+  <SolidColorBrush x:Key="DangerBrush" Color="#FFD64545"/>
+  <SolidColorBrush x:Key="DangerSoftBrush" Color="#FFFBE6E6"/>
+</ResourceDictionary>

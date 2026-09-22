@@ -830,14 +830,7 @@ namespace DepotDumper
             // Notify GUI that login succeeded
             if (OnLoginSuccess != null)
             {
-                if (UIDispatcher != null)
-                {
-                    UIDispatcher.Invoke(() => OnLoginSuccess.Invoke());
-                }
-                else
-                {
-                    OnLoginSuccess.Invoke();
-                }
+                OnUiThread(() => OnLoginSuccess.Invoke());
             }
 
             if (DepotDumper.Config.CellID == 0)
@@ -924,8 +917,24 @@ namespace DepotDumper
         // Event for when login succeeds (to auto-close QR window)
         public static event Action? OnLoginSuccess;
 
+#if WPF_GUI
         // Dispatcher for GUI events (set by GUI on startup)
         public static System.Windows.Threading.Dispatcher? UIDispatcher { get; set; }
+
+        private static void OnUiThread(Action action)
+        {
+            if (UIDispatcher != null) UIDispatcher.Invoke(action); else action();
+        }
+#elif AVALONIA_GUI
+        private static void OnUiThread(Action action)
+        {
+            var d = Avalonia.Threading.Dispatcher.UIThread;
+            if (d.CheckAccess()) action(); else d.Invoke(action);
+        }
+#else
+        // No window in this build: events run on the calling thread.
+        private static void OnUiThread(Action action) => action();
+#endif
 
         public static void DisplayQrCode(string challengeUrl)
         {
@@ -946,14 +955,7 @@ namespace DepotDumper
                 }
 
                 // If we have a UI dispatcher, invoke on it; otherwise invoke directly
-                if (UIDispatcher != null)
-                {
-                    UIDispatcher.Invoke(() => OnQrCodeGenerated.Invoke(challengeUrl, matrix));
-                }
-                else
-                {
-                    OnQrCodeGenerated.Invoke(challengeUrl, matrix);
-                }
+                OnUiThread(() => OnQrCodeGenerated.Invoke(challengeUrl, matrix));
             }
 
             char darkBlock = '█';
